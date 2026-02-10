@@ -2,7 +2,7 @@
 
 This is a demonstration of using RAG + LLM to build a chatbot, written in Python with Jupyter Notebooks.  
 author: pannixilin  
-https://gettr.com/user/pannixilin1  
+Gettr: [@pannixilin1](https://gettr.com/user/pannixilin1)  
 
 
 
@@ -18,19 +18,19 @@ https://gettr.com/user/pannixilin1
      - `ELASTIC_URL`: Elasticsearch server URL
      - `ELASTIC_API_KEY`: Elasticsearch API key
 3. Set up Elasticsearch: The project uses Elasticsearch Serverless for document indexing and search
-4. Prepare data: Run `data_prepare.ipynb` to download and process the data
+4. Prepare data: Run one of the notebooks in `scripts/` (e.g. `scripts/data_prepare_miles.ipynb`) to download and process the data
 
 ## Usage
 
 ### Data Preparation
-Run `scripts/data_prepare.ipynb` to:
-- Download text from https://gwins.org/
+Run one of the dataset-specific notebooks in `scripts/` (for example `scripts/data_prepare_miles.ipynb`) to:
+- Download text from [`gwins.org`](https://gwins.org/)
 - Process and split text into chunks
 - Generate summaries and titles
 - Index documents in Elasticsearch
 
 ### Playground
-Open `scripts/playground.ipynb` to:
+Open one of the playground notebooks in `scripts/` to:
 - Explore Elasticsearch search functionality
 - Test title search and chunk search
 - Experiment with the two-step search system
@@ -68,11 +68,10 @@ The project includes `main.py` which contains the FastAPI app for Cloud Function
 ## Documentation
 
 - [docs/README_zh.md](docs/README_zh.md) - 中文文档 (Chinese documentation)
-- [docs/README_TECH.md](docs/README_TECH.md) - Technical documentation and architecture details
 - [docs/README_RAG.md](docs/README_RAG.md) - RAG algorithm, workflow, and design decisions
 - [docs/README_AGENTIC.md](docs/README_AGENTIC.md) - Agentic RAG Pipeline documentation (LangGraph-based workflow)
 - [docs/README_API.md](docs/README_API.md) - API endpoints and usage
-- [docs/README_DATA.md](docs/README_DATA.md) - Data preparation guide and data_miles directory structure
+- [docs/README_DATA.md](docs/README_DATA.md) - Data preparation guide and `data_*/` directory structure
 - [docs/README_GCLOUD_FUNCTIONS.md](docs/README_GCLOUD_FUNCTIONS.md) - Google Cloud Functions deployment (recommended)
 - [docs/README_TEST.md](docs/README_TEST.md) - Testing documentation
 - [frontend/README_WEB.md](frontend/README_WEB.md) - Frontend documentation
@@ -84,7 +83,7 @@ The project includes `main.py` which contains the FastAPI app for Cloud Function
 The frontend is automatically deployed to GitHub Pages via GitHub Actions workflow (`.github/workflows/deploy.yml`). Every time code is merged to `main`, `master`, or `v2` branch, the frontend is automatically updated on GitHub Pages.
 
 **Local Development:**
-Open `frontend/index.html` in a browser, set the Cloud Functions base URL + function name, then start chatting.
+Open `frontend/rag.html` (traditional RAG) or `frontend/agentic.html` (agentic RAG) in a browser, set the Cloud Functions base URL + function name, then start chatting.
 
 *Important:* To avoid CORS blocking, make sure the backend has CORS enabled. Configure `CORS_ALLOW_ORIGINS` in your `.env` file (e.g., `CORS_ALLOW_ORIGINS=*` or specific origins like `CORS_ALLOW_ORIGINS=https://yourusername.github.io,file://`).
 
@@ -99,40 +98,65 @@ Note: browser calls require CORS. This repo enables CORS via FastAPI `CORSMiddle
 
 ```
 chatbot_milesguo/
-  main.py                    # FastAPI app entry point
-  requirements.txt           # Dependencies
-  env.example                # Environment variables template
-  
-  lib/                       # Core libraries
-    rag/                     # RAG implementation
-    llm/                     # LLM integration (LiteLLM)
-    search/                  # Elasticsearch modules
-    security/                # Security (CORS, auth, rate limiting)
-    app_logger.py            # Logging utilities
-  
-  docs/                      # Documentation
-    README_API.md            # API documentation
-    README_TECH.md           # Technical documentation
-    README_GCLOUD_FUNCTIONS.md  # Deployment guide
-    README_TEST.md           # Testing guide
-  
-  frontend/                  # Frontend
-    index.html               # Web UI
-    README_WEB.md            # Frontend documentation
-  
-  scripts/                   # Scripts and notebooks
-    data_prepare.ipynb       # Data preparation notebook
-    playground.ipynb         # Exploration notebook
-    deploy.sh                # Deployment script
-  
-  test/                      # Tests
-  data_miles/                # Processed data (not in git)
-  archive/                   # Legacy files
+  main.py                      # FastAPI app entry point (also used for Cloud Functions)
+  requirements.txt             # Runtime dependencies
+  requirements-dev.txt         # Dev dependencies
+  env.example                  # Environment variables template
+  LICENSE
+
+  lib/                         # Core Python packages (RAG, search, agentic workflow, etc.)
+    agentic/                   # LangGraph-based Agentic RAG pipeline
+      nodes/                   # Graph nodes (entry, search, reply, validation)
+      prompts/                 # Agentic prompt loaders + templates
+      streaming.py             # Streaming helpers for agentic runs
+    rag/                       # Traditional RAG implementation (prompting + query expansion)
+    search/                    # Elasticsearch clients & indexing helpers
+    llm/                       # LLM integration (LiteLLM wrapper)
+    data/                      # Data download + preprocessing pipeline pieces
+    security/                  # CORS/auth helpers for the API
+    app_logger.py              # Logging utilities
+
+  prompts/                     # YAML prompts used by the runtime
+    entry_prompt.yaml
+    rag.yaml
+    agentic_prompt.yaml
+
+  docs/                        # Documentation
+    README_RAG.md
+    README_AGENTIC.md
+    README_API.md
+    README_DATA.md
+    README_TEST.md
+    README_GCLOUD_FUNCTIONS.md
+    README_zh.md
+
+  frontend/                    # Static frontend (GitHub Pages)
+    rag.html                   # Traditional RAG UI
+    agentic.html               # Agentic RAG UI
+    rag.js                     # Traditional RAG client logic
+    agentic.js                 # Agentic RAG client logic
+    common.js                  # Shared UI/client helpers
+    styles.css
+    README_WEB.md
+
+  scripts/                     # Notebooks and helper scripts
+    data_prepare_*.ipynb        # Data preparation per dataset (miles/lxb/lzj/mzd)
+    playground_rag.ipynb        # RAG playground
+    playground_agentic.ipynb    # Agentic workflow playground
+    playground_agentic_stream.ipynb  # Agentic streaming playground
+    graph.mmd                   # Mermaid graph diagram
+    deploy.sh                   # Deployment helper
+
+  test/                        # Unit/integration tests
+
+  data/                        # Local datasets root
+    data_*/                    # Per-dataset data (documents/chunks/summaries/titles, etc.)
+  archive/                     # Archived deployment artifacts and old server
 ```
 
 ## Architecture
 
-The system implements a **two-step RAG architecture**. For detailed architecture documentation, see [docs/README_TECH.md](docs/README_TECH.md).
+The system implements a **two-step RAG architecture**. For detailed documentation, see [docs/README_RAG.md](docs/README_RAG.md).
 
 ## Advantages vs. Naive RAG
 

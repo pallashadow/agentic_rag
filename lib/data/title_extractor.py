@@ -32,16 +32,39 @@ class TitleExtractor:
         dict1 = dict()
         for in_file in tqdm(files):
             id = os.path.basename(in_file).split(".")[0]
-            with open(in_file, "r") as f:
+            with open(in_file, "r", encoding="utf-8") as f:
                 txt = f.read()
+            
+            title = None
+            
+            # Try pattern 1: extract text before "首页"
             pattern1 = r'^(.*?)首页'
             match = re.match(pattern1, txt)
             if match: 
-                title = match.group(1)
+                title = match.group(1).strip()
                 title = title.replace("\n", " ")
-            else:
-                # Use filename as title if pattern doesn't match
+            
+            # Try pattern 2: extract Markdown heading (# Title or ## Title)
+            if not title:
+                pattern2 = r'^#+\s+(.+?)$'
+                match = re.match(pattern2, txt, re.MULTILINE)
+                if match:
+                    title = match.group(1).strip()
+            
+            # Try pattern 3: extract first non-empty line as title
+            if not title:
+                lines = txt.strip().split('\n')
+                for line in lines:
+                    line = line.strip()
+                    if line and not line.startswith('#') and len(line) > 0:
+                        # Use first meaningful line, but limit length
+                        title = line[:200] if len(line) > 200 else line
+                        break
+            
+            # Fallback: use filename without extension
+            if not title:
                 title = id
+            
             dict1[id] = title
         with open(self.output_file, "w", encoding="utf-8") as f:
             json.dump(dict1, f, indent=2, ensure_ascii=False)

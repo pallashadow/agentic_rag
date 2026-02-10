@@ -1,6 +1,7 @@
 from dotenv import load_dotenv
 import os
 import logging
+import time
 from lib.app_logger import get_logger
 
 logger = get_logger(__name__)
@@ -40,12 +41,16 @@ class ElasticReadClientBase:
             ELASTIC_API_KEY = os.getenv("ELASTIC_API_KEY")
             ELASTIC_URL = os.getenv("ELASTIC_URL")
             # Async client for search operations
+            # Add retry configuration to handle SSL/connection errors
             self.async_client = AsyncElasticsearch(
                 ELASTIC_URL,
                 api_key=ELASTIC_API_KEY,
                 verify_certs=False,
                 ssl_show_warn=False,
-                request_timeout=10,
+                request_timeout=30,  # Increased timeout for better reliability
+                max_retries=5,  # Retry up to 5 times on connection errors
+                retry_on_timeout=True,  # Retry on timeout
+                retry_on_status=[502, 503, 504],  # Retry on these HTTP status codes
             )
             self.helpers = helpers
         
@@ -91,12 +96,16 @@ class ElasticWriteClientBase:
             ELASTIC_API_KEY = os.getenv("ELASTIC_API_KEY")
             ELASTIC_URL = os.getenv("ELASTIC_URL")
             # Synchronous client for write operations
+            # Add retry configuration to handle SSL/connection errors
             self.client = Elasticsearch(
                 ELASTIC_URL,
                 api_key=ELASTIC_API_KEY, 
                 verify_certs=False,
                 ssl_show_warn=False,
-                request_timeout=10,
+                request_timeout=30,  # Increased timeout for better reliability
+                max_retries=5,  # Retry up to 5 times on connection errors
+                retry_on_timeout=True,  # Retry on timeout
+                retry_on_status=[502, 503, 504],  # Retry on these HTTP status codes
             )
             self.helpers = helpers
         
@@ -217,11 +226,32 @@ class ElasticWriteClientBase:
         return chunk_ids
 
     def insert_doc(self, docs):
-        bulk_response = self.helpers.bulk(
-            self.client, 
-            docs, 
-            index=self.index_name)
-        return bulk_response
+        # Retry logic to handle SSL/TLS connection errors
+        max_attempts = 5
+        for attempt in range(max_attempts):
+            try:
+                # Add retry configuration for bulk operations
+                bulk_response = self.helpers.bulk(
+                    self.client, 
+                    docs, 
+                    index=self.index_name,
+                    max_retries=3,  # Internal retries within bulk helper
+                    initial_backoff=1,  # Initial backoff time in seconds
+                    max_backoff=30,  # Maximum backoff time in seconds
+                    raise_on_error=False,  # Don't raise exception, return error details instead
+                )
+                return bulk_response
+            except Exception as e:
+                error_msg = str(e)
+                is_ssl_error = "SSL" in error_msg or "TLS" in error_msg or "ssl" in error_msg.lower()
+                if is_ssl_error and attempt < max_attempts - 1:
+                    wait_time = min(2 ** attempt, 10)  # Exponential backoff: 1s, 2s, 4s, 8s, 10s
+                    logger.warning(f"SSL/TLS error on attempt {attempt + 1}/{max_attempts}, retrying after {wait_time}s: {error_msg[:200]}")
+                    time.sleep(wait_time)
+                    continue
+                else:
+                    logger.exception("Error in bulk insert after %d attempts", attempt + 1)
+                    raise  # Re-raise if not SSL error or max attempts reached
     
     def insert_or_update_doc(self, docs, existing_ids):
         """
@@ -262,14 +292,31 @@ class ElasticWriteClientBase:
         if not bulk_actions:
             return (0, 0)
         
-        try:
-            bulk_response = self.helpers.bulk(
-                self.client,
-                bulk_actions,
-                index=self.index_name
-            )
-            return bulk_response
-        except Exception as e:
-            logger.exception("Error in bulk insert/update")
-            return (0, len(bulk_actions))
+        # Retry logic to handle SSL/TLS connection errors
+        max_attempts = 5
+        for attempt in range(max_attempts):
+            try:
+                # Add retry configuration for bulk operations
+                bulk_response = self.helpers.bulk(
+                    self.client,
+                    bulk_actions,
+                    index=self.index_name,
+                    max_retries=3,  # Internal retries within bulk helper
+                    initial_backoff=1,  # Initial backoff time in seconds
+                    max_backoff=30,  # Maximum backoff time in seconds
+                    raise_on_error=False,  # Don't raise exception, return error details instead
+                )
+                return bulk_response
+            except Exception as e:
+                error_msg = str(e)
+                is_ssl_error = "SSL" in error_msg or "TLS" in error_msg or "ssl" in error_msg.lower()
+                if is_ssl_error and attempt < max_attempts - 1:
+                    wait_time = min(2 ** attempt, 10)  # Exponential backoff: 1s, 2s, 4s, 8s, 10s
+                    logger.warning(f"SSL/TLS error on attempt {attempt + 1}/{max_attempts}, retrying after {wait_time}s: {error_msg[:200]}")
+                    time.sleep(wait_time)
+                    continue
+                else:
+                    logger.exception("Error in bulk insert/update after %d attempts", attempt + 1)
+                    # Return error count instead of raising
+                    return (0, len(bulk_actions))
     

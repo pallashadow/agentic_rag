@@ -27,10 +27,10 @@ class ElasticChunk(BaseModel):
 class ElasticWriteClientChunks(ElasticWriteClientBase):
     def __init__(self, 
                  chunk_index_name="miles_guo", 
-                 chunks_path="./data_miles/chunks/",
-                 contexts_path="./data_miles/contexts/",
-                 title_path="./data_miles/titles.json",
-                 summaries_path="./data_miles/summaries.json",
+                 chunks_path="./data/data_miles/chunks/",
+                 contexts_path="./data/data_miles/contexts/",
+                 title_path="./data/data_miles/titles.json",
+                 summaries_path="./data/data_miles/summaries.json",
                  ):
         super().__init__(chunk_index_name)
         self.chunks_path = chunks_path
@@ -41,13 +41,20 @@ class ElasticWriteClientChunks(ElasticWriteClientBase):
         
     def get_chunk_id_from_file(self, file: str) -> tuple[str, str]:
         """Extract doc_id and chunk_id from filename.
+        Chunk filenames follow the pattern: {doc_id}_{chunk_id}.txt
+        Uses rsplit to handle doc_ids that contain underscores themselves.
         """
         basename = os.path.splitext(os.path.basename(file))[0]
-        parts = basename.split("_")
-        if len(parts) >= 2:
-            # chunk_id is the last part, doc_id is everything before it
-            chunk_id = parts[-1]
-            doc_id = "_".join(parts[:-1])
+        # Use rsplit to split only on the last underscore, allowing doc_id to contain underscores
+        if "_" in basename:
+            parts = basename.rsplit("_", 1)
+            if len(parts) == 2:
+                doc_id = parts[0]
+                chunk_id = parts[1]
+            else:
+                # Fallback if rsplit doesn't work as expected
+                doc_id = basename
+                chunk_id = "0"
         else:
             # Fallback for files without underscore (e.g., system.txt)
             doc_id = basename

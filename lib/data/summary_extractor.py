@@ -53,30 +53,44 @@ class SummaryExtractor:
         # Get all files and filter out already processed ones
         all_files = [os.path.join(self.input_dir, x) for x in os.listdir(self.input_dir)]
         files = []
+        # Track all existing document IDs from files
+        existing_doc_ids = set()
         for in_file in all_files:
             doc_id = os.path.basename(in_file).split(".")[0]
+            existing_doc_ids.add(doc_id)
             if doc_id not in existing_summaries:
                 files.append(in_file)
         
         if self.limit is not None:
             files = files[:self.limit]
         
-        if not files:
-            print("All documents have already been processed.")
-            return
+        # Process new files if any
+        if files:
+            semaphore = asyncio.Semaphore(self.max_workers)
+            with tqdm(total=len(files), desc="Extracting summaries") as pbar:
+                tasks = [self._process_file(in_file, semaphore, pbar) for in_file in files]
+                results = await asyncio.gather(*tasks)
+            
+            # Merge new results with existing summaries
+            new_summaries = {id: summary for id, summary in results}
+            existing_summaries.update(new_summaries)
         
-        semaphore = asyncio.Semaphore(self.max_workers)
+        # Remove keys for documents that no longer exist in input_dir
+        keys_to_remove = []
+        for doc_id in existing_summaries.keys():
+            if doc_id not in existing_doc_ids:
+                keys_to_remove.append(doc_id)
         
-        with tqdm(total=len(files), desc="Extracting summaries") as pbar:
-            tasks = [self._process_file(in_file, semaphore, pbar) for in_file in files]
-            results = await asyncio.gather(*tasks)
-        
-        # Merge new results with existing summaries
-        new_summaries = {id: summary for id, summary in results}
-        existing_summaries.update(new_summaries)
+        if keys_to_remove:
+            for doc_id in keys_to_remove:
+                del existing_summaries[doc_id]
+            print(f"Removed {len(keys_to_remove)} summaries for deleted documents: {keys_to_remove[:10]}{'...' if len(keys_to_remove) > 10 else ''}")
         
         with open(self.output_file, "w", encoding="utf-8") as f:
             json.dump(existing_summaries, f, indent=2, ensure_ascii=False)
+        
+        if not files:
+            print("All documents have already been processed.")
     
     async def get_summary(self, txt: str):
         prompt = f"请对以下演讲的核心内容进行摘要，突出核心命名实体名称，不超过100个字。以下是文本：{txt}"

@@ -1,0 +1,71 @@
+schema_version: 1
+id: reply_validation_and_refine
+version: 0.1.0
+
+meta:
+  title: Validate answer quality and propose follow-up retrieval ops
+  owner: lib.agentic
+  purpose: >
+    Evaluate whether the current answer sufficiently addresses the question.
+    If not, propose follow-up retrieval operations in a structured way.
+  tags:
+    - validation
+    - refine-query
+    - retrieval-ops
+
+inputs:
+  - name: question
+    type: string
+    required: true
+  - name: historical_search_ops
+    type: array
+    required: true
+    description: Historical search operations already attempted.
+  - name: search_results_txt
+    type: string
+    required: true
+    description: JSON string of search results (ensure_ascii=False recommended).
+  - name: answer
+    type: string
+    required: true
+
+examples:
+  - name: valid_answer_example
+    inputs:
+      question: "示例问题"
+      historical_search_ops: []
+      search_results_txt: "[]"
+      answer: "示例答案"
+    notes: The model should output type_state=valid_answer with empty arrays.
+
+body:
+  template: |-
+    评估答案质量并决定是否需要进一步检索：
+
+    用户问题：{question}
+
+    之前的历史操作：{historical_search_ops}
+
+    已经找到的有用的生成答案的搜索结果：
+    {search_results_txt}
+
+    当前生成的答案：
+    {answer}
+
+    请评估答案是否充分回答了用户问题：
+
+    1. **valid_answer**：如果答案已经充分、准确、完整地回答了用户问题，则返回此状态
+       - refined_queries 设为空数组
+       - valid_search_indices 设为空数组
+       - search_ops 设为空数组
+
+    2. **refine_query**：如果答案不够充分、不准确、缺少关键信息，需要尝试对潜在的缺失的信息进一步检索，则返回此状态
+       - 生成 search_ops 数组，包含多个元素，每个元素是一个搜索操作对象：
+         * 类型可以是 "search_general"（通用搜索，需要 query_list 字段）
+         * 类型可以是 "search_doc"，如果doc_summary和问题高度相关，则额外基于doc_id追加此类型的检索
+         * 类型可以是 "search_neighbour_chunks"，进行临近块搜索。如果某个chunk和问题高度相关，则基于doc_id和chunk_id额外追加一个此类型的检索
+         * 根据细化查询的内容，选择合适的搜索类型，
+
+    请严格按照 JSON Schema 格式返回结果。
+
+

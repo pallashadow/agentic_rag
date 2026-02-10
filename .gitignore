@@ -5,6 +5,8 @@ key.pem
 **/nohup.out
 .env
 data_*/
+data/
 
+*.pdf
 *.pyc
 *.mmd

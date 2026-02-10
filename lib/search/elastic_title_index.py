@@ -9,8 +9,8 @@ logger = get_logger(__name__)
 class ElasticWriteClientTitles(ElasticWriteClientBase):
     def __init__(self, 
                  title_index_name="miles_guo_titles",
-                 title_path="./data_miles/titles.json",
-                 summaries_path="./data_miles/summaries.json",
+                 title_path="./data/data_miles/titles.json",
+                 summaries_path="./data/data_miles/summaries.json",
                  ):
         super().__init__(title_index_name)
         self.title_path = title_path
