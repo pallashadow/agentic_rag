@@ -1,6 +1,46 @@
+import type { Source, RAGSettings, MessageOptions, RAGResponse, SSEChunk } from "./types.js";
+import {
+  buildEndpointUrl,
+  setStatus,
+  nowTime,
+  typewriterEffect,
+  copyToClipboard,
+  fetchAuthTokenFromBackend,
+  getAuthToken,
+  clearTokenCache,
+} from "./common.js";
+import {
+  bindClampedNumberInput,
+  createRateLimitController,
+  loadSettingsFromStorage,
+  saveSettingsToStorage,
+} from "./shared/page_helpers.js";
+
 const STORAGE_KEY = "chatbot-milesguo:settings:v1";
 
-function renderSourcesDetails(container, sources, { includeIndex = true } = {}) {
+// Global DOM element references
+let cloudBase: HTMLInputElement;
+let titleK: HTMLInputElement;
+let chunkK: HTMLInputElement;
+let queryExpandK: HTMLInputElement;
+let chunkIndex: HTMLInputElement;
+let statusPill: HTMLElement;
+let saveBtn: HTMLButtonElement;
+let resetBtn: HTMLButtonElement;
+let clearBtn: HTMLButtonElement;
+let showSources: HTMLInputElement;
+let messages: HTMLElement;
+let userInput: HTMLTextAreaElement;
+let sendBtn: HTMLButtonElement;
+let cancelBtn: HTMLButtonElement;
+let errorLine: HTMLElement;
+
+function renderSourcesDetails(
+  container: HTMLElement,
+  sources: Source[],
+  { includeIndex = true }: { includeIndex?: boolean } = {}
+): void {
+  // Accept backend payloads directly and no-op on empty results to keep callers simple.
   if (!sources || !Array.isArray(sources) || sources.length === 0) return;
 
   const details = document.createElement("details");
@@ -26,7 +66,8 @@ function renderSourcesDetails(container, sources, { includeIndex = true } = {}) 
     const index = s.index ?? "";
     const chunkId = s.chunk_id ?? "";
     const docId = s.doc_id ?? "";
-    const score = s.score != null ? Number(s.score).toFixed(4) : "";
+    const score =
+      s.score != null ? Number(s.score).toFixed(4) : "";
     const indexPrefix = includeIndex && index !== "" ? `#${index}   ` : "";
     metaP.textContent = `${indexPrefix}doc_id: ${docId}   chunk_id: ${chunkId}   score: ${score}`;
 
@@ -60,7 +101,7 @@ function renderSourcesDetails(container, sources, { includeIndex = true } = {}) 
   container.appendChild(details);
 }
 
-function renderSourcesProgress(container, sources) {
+function renderSourcesProgress(container: HTMLElement, sources: Source[]): void {
   if (!sources || !Array.isArray(sources) || sources.length === 0) return;
   const progressDiv = document.createElement("div");
   progressDiv.className = "progressIndicator fadeIn";
@@ -71,7 +112,18 @@ function renderSourcesProgress(container, sources) {
   container.appendChild(progressDiv);
 }
 
-function addMessage({ role, text, sources = null, prompt = null, querys = null, thinking = false, updateBubble = null, useTypewriter = true }) {
+function addMessage(options: MessageOptions): HTMLElement {
+  const {
+    role,
+    text = null,
+    sources = null,
+    prompt = null,
+    querys = null,
+    thinking = false,
+    updateBubble = null,
+    useTypewriter = true,
+  } = options;
+
   // If updateBubble is provided, update existing message instead of creating new one
   if (updateBubble) {
     const pre = updateBubble.querySelector(".msg");
@@ -82,25 +134,26 @@ function addMessage({ role, text, sources = null, prompt = null, querys = null, 
         // Remove typing class if present
         pre.classList.remove("typing");
         if (useTypewriter && text) {
-          typewriterEffect(pre, text);
+          typewriterEffect(messages, pre as HTMLElement, text);
         } else {
           pre.textContent = text || "";
         }
       }
     }
 
+    // Recreate dynamic sections each update so streaming refreshes do not stack duplicated UI.
     // Remove existing progress indicator if any
     const existingProgress = updateBubble.querySelectorAll(".progressIndicator");
-    existingProgress.forEach(p => p.remove());
-    
+    existingProgress.forEach((p) => p.remove());
+
     // Remove existing sources/details if any
     const existingDetails = updateBubble.querySelectorAll("details");
-    existingDetails.forEach(d => d.remove());
+    existingDetails.forEach((d) => d.remove());
 
     // Add new sources if provided
     if (role === "assistant") {
-      renderSourcesProgress(updateBubble, sources);
-      renderSourcesDetails(updateBubble, sources);
+      renderSourcesProgress(updateBubble, sources || []);
+      renderSourcesDetails(updateBubble, sources || [], { includeIndex: false });
     }
 
     messages.scrollTop = messages.scrollHeight;
@@ -112,17 +165,17 @@ function addMessage({ role, text, sources = null, prompt = null, querys = null, 
 
   const meta = document.createElement("div");
   meta.className = "meta";
-  
+
   const metaLeft = document.createElement("span");
   metaLeft.textContent = role === "user" ? "You" : "Assistant";
-  
+
   const metaRight = document.createElement("span");
   metaRight.textContent = nowTime();
-  
+
   // Add message action buttons
   const messageActions = document.createElement("div");
   messageActions.className = "messageActions";
-  
+
   if (role === "user" && !thinking) {
     const editBtn = document.createElement("button");
     editBtn.className = "messageActionBtn";
@@ -145,7 +198,7 @@ function addMessage({ role, text, sources = null, prompt = null, querys = null, 
     });
     messageActions.appendChild(editBtn);
   }
-  
+
   if (role === "assistant" && !thinking) {
     const copyBtn = document.createElement("button");
     copyBtn.className = "messageActionBtn";
@@ -163,7 +216,7 @@ function addMessage({ role, text, sources = null, prompt = null, querys = null, 
         }, 2000);
       }
     });
-    
+
     const regenerateBtn = document.createElement("button");
     regenerateBtn.className = "messageActionBtn";
     regenerateBtn.innerHTML = "🔄 Regenerate";
@@ -192,11 +245,11 @@ function addMessage({ role, text, sources = null, prompt = null, querys = null, 
         }
       }
     });
-    
+
     messageActions.appendChild(copyBtn);
     messageActions.appendChild(regenerateBtn);
   }
-  
+
   meta.appendChild(metaLeft);
   meta.appendChild(messageActions);
   meta.appendChild(metaRight);
@@ -208,7 +261,7 @@ function addMessage({ role, text, sources = null, prompt = null, querys = null, 
   } else {
     if (useTypewriter && text && role === "assistant") {
       // Start typewriter effect
-      typewriterEffect(pre, text);
+      typewriterEffect(messages, pre as HTMLElement, text);
     } else {
       pre.textContent = text || "";
     }
@@ -218,14 +271,16 @@ function addMessage({ role, text, sources = null, prompt = null, querys = null, 
   bubble.appendChild(pre);
 
   if (role === "assistant") {
-    renderSourcesProgress(bubble, sources);
-    renderSourcesDetails(bubble, sources, { includeIndex: false });
+    renderSourcesProgress(bubble, sources || []);
+    renderSourcesDetails(bubble, sources || [], { includeIndex: false });
   }
 
   if (role === "assistant") {
     if (querys && querys.length) {
       const d = document.createElement("details");
-      d.innerHTML = `<summary>Queries (${querys.length})</summary><pre style="padding:8px;white-space:pre-wrap;font-size:0.9em;max-height:200px;overflow:auto">${querys.map((q, i) => `${i ? 'Expanded ' + i : 'Original'}: ${q}`).join('\n')}</pre>`;
+      d.innerHTML = `<summary>Queries (${querys.length})</summary><pre style="padding:8px;white-space:pre-wrap;font-size:0.9em;max-height:200px;overflow:auto">${querys
+        .map((q, i) => `${i ? "Expanded " + i : "Original"}: ${q}`)
+        .join("\n")}</pre>`;
       bubble.appendChild(d);
     }
     if (prompt) {
@@ -240,11 +295,11 @@ function addMessage({ role, text, sources = null, prompt = null, querys = null, 
   return bubble;
 }
 
-function getSettingsFromUI() {
+function getSettingsFromUI(): RAGSettings {
   // Clamp values to valid ranges
   const chunkKValue = Number(chunkK.value || 10);
   const queryExpandKValue = Number(queryExpandK.value || 1);
-  
+
   return {
     cloudBase: cloudBase.value.trim(),
     authToken: getAuthToken(),
@@ -255,7 +310,7 @@ function getSettingsFromUI() {
   };
 }
 
-function applySettingsToUI(s) {
+function applySettingsToUI(s: Partial<RAGSettings>): void {
   cloudBase.value = s.cloudBase ?? "";
   titleK.value = String(Number.isFinite(s.titleK) ? s.titleK : 3);
   chunkK.value = String(Number.isFinite(s.chunkK) ? s.chunkK : 10);
@@ -263,76 +318,34 @@ function applySettingsToUI(s) {
   chunkIndex.value = s.chunkIndex ?? "";
 }
 
-function loadSettings() {
-  const defaults = {
+function loadSettings(): RAGSettings {
+  const defaults: RAGSettings = {
     cloudBase: "https://us-central1-xixibaigao.cloudfunctions.net/chatbot-milesguo/chatbot_stream",
     titleK: 3,
     chunkK: 10,
     queryExpandK: 1,
     chunkIndex: "",
+    authToken: "",
   };
-
-  let settings = defaults;
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) {
-      settings = { ...defaults, ...JSON.parse(raw) };
-    }
-  } catch {
-    // Keep defaults
-  }
-
-  // Override with URL parameters if present
-  const params = new URLSearchParams(window.location.search);
-  const urlChunkIndex = params.get("chunk_index");
-  if (urlChunkIndex !== null) {
-    settings.chunkIndex = urlChunkIndex.trim();
-  }
-
-  return settings;
+  return loadSettingsFromStorage<RAGSettings>(STORAGE_KEY, defaults);
 }
 
-function saveSettings(s) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(s));
+function saveSettings(s: RAGSettings): void {
+  saveSettingsToStorage(STORAGE_KEY, s);
 }
 
-
-let inFlight = null;
-let currentThinkingBubble = null;
-let rateLimitTimer = null;
+let inFlight: AbortController | null = null;
+let currentThinkingBubble: HTMLElement | null = null;
+let rateLimit: ReturnType<typeof createRateLimitController>;
 // Store conversation history for query_context
-let queryContext = [];
+let queryContext: string[] = [];
 
-function clearRateLimitTimer() {
-  if (rateLimitTimer) {
-    clearInterval(rateLimitTimer);
-    rateLimitTimer = null;
-  }
-}
-
-function startRateLimitCountdown(seconds) {
-  clearRateLimitTimer();
-  let remaining = Math.max(1, Math.floor(seconds || 1));
-  sendBtn.disabled = true;
-
-  setStatus(`Rate limited (${remaining}s)`, true);
-  rateLimitTimer = setInterval(() => {
-    remaining -= 1;
-    if (remaining <= 0) {
-      clearRateLimitTimer();
-      setStatus("Idle");
-      sendBtn.disabled = false;
-      return;
-    }
-    setStatus(`Rate limited (${remaining}s)`, true);
-  }, 1000);
-}
-
-async function sendMessage() {
+async function sendMessage(): Promise<void> {
   const text = userInput.value.trim();
   if (!text) return;
   errorLine.textContent = "";
 
+  // Keep one active request to prevent mixed responses updating the same conversation state.
   // Cancel previous request if in flight
   if (inFlight) {
     inFlight.abort();
@@ -356,8 +369,8 @@ async function sendMessage() {
   }
 
   // Ensure token is fetched before sending request
-  if (!cachedAuthToken) {
-    const fetchedToken = await fetchAuthTokenFromBackend();
+  if (!getAuthToken()) {
+    const fetchedToken = await fetchAuthTokenFromBackend(cloudBase.value);
     if (!fetchedToken && !getAuthToken()) {
       // If no token from URL param and fetch returned null, warn user
       console.warn("No authentication token available. Backend may require authentication.");
@@ -370,13 +383,13 @@ async function sendMessage() {
     errorLine.textContent = "Please fill Cloud Functions URL.";
     return;
   }
-  
+
   // Validate URL format
   try {
     new URL(endpoint);
   } catch (e) {
     errorLine.textContent = "Invalid URL format. Please enter a valid Cloud Functions URL.";
-    setStatus("Invalid URL", true);
+    setStatus(statusPill, "Invalid URL", true);
     return;
   }
 
@@ -387,7 +400,7 @@ async function sendMessage() {
   // Only use streaming if the URL explicitly contains /chatbot_stream
   // User must explicitly specify streaming endpoint in the URL
   let useStreaming = false;
-  
+
   // Check if URL explicitly contains streaming endpoint
   if (endpoint.includes("/chatbot_stream")) {
     useStreaming = true;
@@ -403,6 +416,7 @@ async function sendMessage() {
   if (s.chunkIndex) {
     url.searchParams.set("chunk_index", s.chunkIndex);
   }
+  // Query context is intentionally short to balance continuity and URL length constraints.
   // Add query_context if available
   if (queryContext && queryContext.length > 0) {
     for (const contextItem of queryContext) {
@@ -413,15 +427,15 @@ async function sendMessage() {
   const controller = new AbortController();
   inFlight = controller;
 
-  clearRateLimitTimer();
+  rateLimit.clear();
   sendBtn.disabled = true;
   cancelBtn.disabled = false;
-  setStatus("Requesting…");
+  setStatus(statusPill, "Requesting…");
 
   // Add thinking indicator for assistant with enhanced status
   const thinkingBubble = addMessage({ role: "assistant", thinking: true });
   currentThinkingBubble = thinkingBubble;
-  
+
   // Add status indicator to thinking bubble
   const statusIndicator = document.createElement("div");
   statusIndicator.className = "progressIndicator";
@@ -434,10 +448,10 @@ async function sendMessage() {
   try {
     // Get fresh token in case it was just fetched
     const authToken = getAuthToken();
-    const headers = {
+    const headers: Record<string, string> = {
       Accept: useStreaming ? "text/event-stream" : "application/json",
     };
-    
+
     // Always include Authorization header if token exists
     if (authToken) {
       headers.Authorization = `Bearer ${authToken}`;
@@ -445,7 +459,7 @@ async function sendMessage() {
     } else {
       console.warn("No auth token available - request may fail if backend requires authentication");
     }
-    
+
     if (useStreaming) {
       // Use streaming response with EventSource-like handling
       await handleStreamingResponse(url.toString(), headers, controller, thinkingBubble, text);
@@ -455,22 +469,29 @@ async function sendMessage() {
     }
   } catch (e) {
     // Only show error if not cancelled (cancelled requests are already handled above)
-    if (e?.name !== "AbortError" || thinkingBubble === currentThinkingBubble) {
-      const msg = e?.name === "AbortError" ? "Request cancelled." : String(e?.message || e);
+    const error = e as Error;
+    if (error?.name !== "AbortError" || thinkingBubble === currentThinkingBubble) {
+      const msg = error?.name === "AbortError" ? "Request cancelled." : String(error?.message || e);
       addMessage({ role: "assistant", text: `Error: ${msg}`, updateBubble: thinkingBubble, useTypewriter: false });
-      setStatus("Error", true);
+      setStatus(statusPill, "Error", true);
       errorLine.textContent = msg;
     }
   } finally {
     inFlight = null;
     currentThinkingBubble = null;
     // If we are counting down for rate limiting, keep send disabled.
-    if (!rateLimitTimer) sendBtn.disabled = false;
+    if (!rateLimit.isActive()) sendBtn.disabled = false;
     cancelBtn.disabled = true;
   }
 }
 
-async function handleStreamingResponse(url, headers, controller, thinkingBubble, userText) {
+async function handleStreamingResponse(
+  url: string,
+  headers: Record<string, string>,
+  controller: AbortController,
+  thinkingBubble: HTMLElement,
+  userText: string
+): Promise<void> {
   const res = await fetch(url, {
     method: "GET",
     signal: controller.signal,
@@ -486,7 +507,7 @@ async function handleStreamingResponse(url, headers, controller, thinkingBubble,
       const retryAfterHeader = res.headers.get("Retry-After");
       const retryAfter = Number(retryAfterHeader || "");
       if (Number.isFinite(retryAfter) && retryAfter > 0) {
-        startRateLimitCountdown(retryAfter);
+        rateLimit.start(retryAfter);
         throw new Error(`Rate limit exceeded (429). Retry after ${retryAfter}s.`);
       }
       throw new Error("Rate limit exceeded (429). Please retry later.");
@@ -495,13 +516,18 @@ async function handleStreamingResponse(url, headers, controller, thinkingBubble,
     throw new Error(detail);
   }
 
-  const reader = res.body.getReader();
+  const reader = res.body?.getReader();
+  if (!reader) {
+    throw new Error("Response body is not readable");
+  }
+
+  // Preserve partial SSE frames in `buffer` because network chunks may split event boundaries.
   const decoder = new TextDecoder();
   let buffer = "";
   let fullContent = "";
-  let sources = null;
-  let prompt = null;
-  let querys = null;
+  let sources: Source[] | null = null;
+  let prompt: string | null = null;
+  let querys: string[] | null = null;
 
   // Get the message element for streaming updates
   const msgElement = thinkingBubble.querySelector(".msg");
@@ -513,7 +539,7 @@ async function handleStreamingResponse(url, headers, controller, thinkingBubble,
   msgElement.innerHTML = "";
   msgElement.classList.remove("typing");
   msgElement.classList.add("typing");
-  
+
   // Update status to show streaming
   const statusIndicator = thinkingBubble.querySelector(".progressIndicator");
   if (statusIndicator) {
@@ -538,23 +564,31 @@ async function handleStreamingResponse(url, headers, controller, thinkingBubble,
           try {
             const jsonStr = line.slice(6).trim();
             if (!jsonStr) continue; // Skip empty data lines
-            const data = JSON.parse(jsonStr);
+            const data: SSEChunk = JSON.parse(jsonStr);
             const { type, data: chunkData } = data;
 
             if (type === "content") {
               // Stream content chunks only
-              fullContent += chunkData;
-              msgElement.textContent = fullContent;
-              messages.scrollTop = messages.scrollHeight;
+              if (typeof chunkData === "string") {
+                fullContent += chunkData;
+                msgElement.textContent = fullContent;
+                messages.scrollTop = messages.scrollHeight;
+              }
             } else if (type === "done") {
+              // Trust terminal payload as source of truth for final content/metadata.
               // Final update with all data
-              fullContent = chunkData.content || fullContent;
-              sources = chunkData.search_results || sources || [];
-              prompt = chunkData.prompt || prompt;
-              querys = chunkData.querys || querys;
+              if (typeof chunkData === "object" && chunkData !== null) {
+                fullContent = chunkData.content || fullContent;
+                sources = chunkData.search_results || sources || [];
+                prompt = chunkData.prompt || prompt;
+                querys = chunkData.querys || querys;
+              }
               break;
             } else if (type === "error") {
-              throw new Error(chunkData.error || "Unknown error");
+              if (typeof chunkData === "object" && chunkData !== null && "error" in chunkData) {
+                throw new Error(chunkData.error || "Unknown error");
+              }
+              throw new Error("Unknown error");
             }
           } catch (e) {
             console.error("Error parsing SSE data:", e, line);
@@ -577,19 +611,26 @@ async function handleStreamingResponse(url, headers, controller, thinkingBubble,
       useTypewriter: false, // Already displayed via streaming
     });
 
+    // Bound context growth to keep requests predictable over long sessions.
     // Keep the last 3 Q&A pairs (6 messages) for context
     queryContext.push(`用户: ${userText}`, `助手: ${fullContent}`);
     if (queryContext.length > 6) {
       queryContext = queryContext.slice(-6);
     }
-    setStatus("Done");
+    setStatus(statusPill, "Done");
   } catch (e) {
     msgElement.classList.remove("typing");
     throw e;
   }
 }
 
-async function handleNonStreamingResponse(url, headers, controller, thinkingBubble, userText) {
+async function handleNonStreamingResponse(
+  url: string,
+  headers: Record<string, string>,
+  controller: AbortController,
+  thinkingBubble: HTMLElement,
+  userText: string
+): Promise<void> {
   const res = await fetch(url, {
     method: "GET",
     signal: controller.signal,
@@ -598,7 +639,7 @@ async function handleNonStreamingResponse(url, headers, controller, thinkingBubb
 
   const retryAfterHeader = res.headers.get("Retry-After");
   const raw = await res.text();
-  let data = null;
+  let data: RAGResponse | null = null;
   try {
     data = raw ? JSON.parse(raw) : null;
   } catch {
@@ -613,12 +654,12 @@ async function handleNonStreamingResponse(url, headers, controller, thinkingBubb
     if (res.status === 429) {
       const retryAfter = Number(retryAfterHeader || "");
       if (Number.isFinite(retryAfter) && retryAfter > 0) {
-        startRateLimitCountdown(retryAfter);
+        rateLimit.start(retryAfter);
         throw new Error(`Rate limit exceeded (429). Retry after ${retryAfter}s.`);
       }
       throw new Error("Rate limit exceeded (429). Please retry later.");
     }
-    const detail = data?.detail || raw || `HTTP ${res.status}`;
+    const detail = (data as { detail?: string })?.detail || raw || `HTTP ${res.status}`;
     throw new Error(detail);
   }
 
@@ -626,93 +667,75 @@ async function handleNonStreamingResponse(url, headers, controller, thinkingBubb
   const sources = Array.isArray(data?.search_results) ? data.search_results : [];
   const prompt = data?.prompt ?? null;
   const querys = Array.isArray(data?.querys) ? data.querys : null;
-  
-  addMessage({ 
-    role: "assistant", 
-    text: content, 
-    sources, 
-    prompt, 
-    querys, 
+
+  addMessage({
+    role: "assistant",
+    text: content,
+    sources,
+    prompt,
+    querys,
     updateBubble: thinkingBubble,
-    useTypewriter: true 
+    useTypewriter: true,
   });
-  
+
+  // Match the same retention window used in streaming mode.
   // Keep the last 3 Q&A pairs (6 messages) for context
   queryContext.push(`用户: ${userText}`, `助手: ${content}`);
   // Keep only the last 6 messages (3 rounds of Q&A)
   if (queryContext.length > 6) {
     queryContext = queryContext.slice(-6);
   }
-  setStatus("Done");
+  setStatus(statusPill, "Done");
 }
 
 // Wire up UI
-const cloudBase = document.getElementById("cloudBase");
-const titleK = document.getElementById("titleK");
-const chunkK = document.getElementById("chunkK");
-const queryExpandK = document.getElementById("queryExpandK");
-const chunkIndex = document.getElementById("chunkIndex");
-const statusPill = document.getElementById("statusPill");
-const saveBtn = document.getElementById("saveBtn");
-const resetBtn = document.getElementById("resetBtn");
-const clearBtn = document.getElementById("clearBtn");
-const showSources = document.getElementById("showSources");
-const messages = document.getElementById("messages");
-const userInput = document.getElementById("userInput");
-const sendBtn = document.getElementById("sendBtn");
-const cancelBtn = document.getElementById("cancelBtn");
-const errorLine = document.getElementById("errorLine");
+cloudBase = document.getElementById("cloudBase") as HTMLInputElement;
+titleK = document.getElementById("titleK") as HTMLInputElement;
+chunkK = document.getElementById("chunkK") as HTMLInputElement;
+queryExpandK = document.getElementById("queryExpandK") as HTMLInputElement;
+chunkIndex = document.getElementById("chunkIndex") as HTMLInputElement;
+statusPill = document.getElementById("statusPill") as HTMLElement;
+saveBtn = document.getElementById("saveBtn") as HTMLButtonElement;
+resetBtn = document.getElementById("resetBtn") as HTMLButtonElement;
+clearBtn = document.getElementById("clearBtn") as HTMLButtonElement;
+showSources = document.getElementById("showSources") as HTMLInputElement;
+messages = document.getElementById("messages") as HTMLElement;
+userInput = document.getElementById("userInput") as HTMLTextAreaElement;
+sendBtn = document.getElementById("sendBtn") as HTMLButtonElement;
+cancelBtn = document.getElementById("cancelBtn") as HTMLButtonElement;
+errorLine = document.getElementById("errorLine") as HTMLElement;
 
-// Add validation for chunkK and queryExpandK to ensure values stay within bounds
-chunkK.addEventListener("input", () => {
-  const value = Number(chunkK.value);
-  if (value < 1) chunkK.value = "1";
-  if (value > 12) chunkK.value = "12";
-});
-chunkK.addEventListener("change", () => {
-  const value = Number(chunkK.value);
-  if (value < 1) chunkK.value = "1";
-  if (value > 12) chunkK.value = "12";
-});
-
-queryExpandK.addEventListener("input", () => {
-  const value = Number(queryExpandK.value);
-  if (value < 1) queryExpandK.value = "1";
-  if (value > 3) queryExpandK.value = "3";
-});
-queryExpandK.addEventListener("change", () => {
-  const value = Number(queryExpandK.value);
-  if (value < 1) queryExpandK.value = "1";
-  if (value > 3) queryExpandK.value = "3";
-});
+// Keep numeric settings in a safe backend-supported range.
+bindClampedNumberInput(chunkK, 1, 12);
+bindClampedNumberInput(queryExpandK, 1, 3);
+rateLimit = createRateLimitController(sendBtn, (text, isError = false) => setStatus(statusPill, text, isError));
 
 // Auto-fetch token when base URL changes
 cloudBase.addEventListener("change", () => {
-  cachedAuthToken = null;
-  tokenFetchPromise = null;
-  fetchAuthTokenFromBackend();
+  clearTokenCache();
+  fetchAuthTokenFromBackend(cloudBase.value);
 });
 
 saveBtn.addEventListener("click", () => {
   const s = getSettingsFromUI();
   saveSettings(s);
-  setStatus("Saved");
-  setTimeout(() => setStatus("Idle"), 800);
+  setStatus(statusPill, "Saved");
+  setTimeout(() => setStatus(statusPill, "Idle"), 800);
 });
 
 resetBtn.addEventListener("click", () => {
   localStorage.removeItem(STORAGE_KEY);
   applySettingsToUI(loadSettings());
-  setStatus("Reset");
-  setTimeout(() => setStatus("Idle"), 800);
+  setStatus(statusPill, "Reset");
+  setTimeout(() => setStatus(statusPill, "Idle"), 800);
 });
 
 clearBtn.addEventListener("click", () => {
   messages.innerHTML = "";
   errorLine.textContent = "";
   queryContext = [];
-  setStatus("Cleared");
-  setTimeout(() => setStatus("Idle"), 800);
+  setStatus(statusPill, "Cleared");
+  setTimeout(() => setStatus(statusPill, "Idle"), 800);
 });
 
 sendBtn.addEventListener("click", sendMessage);
@@ -748,9 +771,9 @@ userInput.addEventListener("keydown", (e) => {
 
 // Init
 applySettingsToUI(loadSettings());
-setStatus("Idle");
+setStatus(statusPill, "Idle");
 // Auto-fetch auth token from backend on page load
-fetchAuthTokenFromBackend();
+fetchAuthTokenFromBackend(cloudBase.value);
 addMessage({
   role: "assistant",
   text: "请提问",

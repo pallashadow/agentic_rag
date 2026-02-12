@@ -19,7 +19,7 @@ gcloud config set project YOUR_PROJECT_ID
 
 Run the deployment script:
 ```bash
-bash scripts/deploy.sh
+bash deploy/deploy.sh
 ```
 
 **Notes:**

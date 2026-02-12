@@ -1,0 +1,40 @@
+# Copy this file to terraform.tfvars and fill in your values
+# Never commit terraform.tfvars to version control
+
+project_id = "your-gcp-project-id"
+region     = "us-central1"
+
+# Function configuration
+function_name = "chatbot-milesguo"
+runtime       = "python311"
+memory        = "256Mi"
+timeout       = 300
+max_instances = 10
+min_instances = 0
+
+# Source directory (relative to terraform directory)
+source_dir = ".."
+
+# Use Secret Manager for API keys (recommended for production)
+use_secret_manager = true
+
+# Secret Manager secret IDs (if use_secret_manager = true)
+openai_api_key_secret_id  = "openai-api-key"
+google_api_key_secret_id  = "google-api-key"
+elastic_url_secret_id     = "elastic-url"
+elastic_api_key_secret_id  = "elastic-api-key"
+api_auth_token_secret_id  = "api-auth-token"
+
+# Direct environment variables (only used if use_secret_manager = false)
+# WARNING: Not recommended for production - use Secret Manager instead
+# openai_api_key  = ""
+# google_api_key  = ""
+# elastic_url     = ""
+# elastic_api_key = ""
+# api_auth_token  = ""
+
+# Optional environment variables
+cors_allow_origins   = "*"
+rate_limit_per_minute = 5
+rate_limit_per_hour   = 30
+

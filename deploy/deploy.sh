@@ -1,7 +1,14 @@
 #!/bin/bash
 # Load .env file and deploy
+# Run from project root: ./deploy/deploy.sh
 
 set -e  # Exit on error
+
+# Get the project root directory (parent of deploy/)
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+cd "$PROJECT_ROOT"
 
 echo "=== Starting deployment to Google Cloud Functions ==="
 

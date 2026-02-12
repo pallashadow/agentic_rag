@@ -1,5 +1,28 @@
 # GitHub Pages Deployment
 
+## Frontend Layout (Minimal Refactor)
+
+- Source files live in `frontend/src/`:
+  - `src/rag.ts`
+  - `src/agentic.ts`
+  - `src/common.ts`
+  - `src/types.ts`
+- Static files stay in `frontend/`:
+  - `rag.html`
+  - `agentic.html`
+  - `styles.css`
+- Build output JS files are generated to `frontend/dist/`:
+  - `dist/rag.js`
+  - `dist/agentic.js`
+  - `dist/common.js`
+  - `dist/types.js`
+
+### Build
+
+```bash
+tsc -p frontend/tsconfig.json
+```
+
 ## Prerequisites
 
 - Repository pushed to GitHub
@@ -77,7 +100,7 @@ https://<username>.github.io/<repository-name>/
 
 ### API Endpoints
 
-Update API URLs in `index.html` to point to your production backend.
+Update API URLs in `rag.html` and `agentic.html` to point to your production backend.
 
 ### CORS
 

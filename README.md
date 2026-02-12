@@ -1,9 +1,10 @@
 # chatbot_milesguo
 
-This is a demonstration of using RAG + LLM to build a chatbot, written in Python with Jupyter Notebooks.  
+This is a demonstration of using Agentic RAG to chat with documents
 author: pannixilin  
 Gettr: [@pannixilin1](https://gettr.com/user/pannixilin1)  
-
+github: https://github.com/pallashadow/agentic_rag
+frontend: https://pallashadow.github.io/agentic_rag/agentic.html
 
 
 
@@ -61,9 +62,14 @@ The easiest way to deploy is using Google Cloud Functions. See [docs/README_GCLO
 
 The project includes `main.py` which contains the FastAPI app for Cloud Functions compatibility.
 
+  - **Infrastructure as Code: Terraform (optional)**  
+    For infrastructure-as-code deployment with version control and Secret Manager integration, see [deploy/terraform/README.md](deploy/terraform/README.md). Terraform configuration manages Cloud Functions, secrets, IAM permissions, and required GCP APIs.
+
+
 ~~**Alternative deployment options (archived):**
 - [archive/README_DOCKER.md](archive/README_DOCKER.md) - Docker deployment guide
 - [archive/README_GCLOUD_RUN.md](archive/README_GCLOUD_RUN.md) - Google Cloud Run deployment guide~~
+
 
 ## Documentation
 
@@ -145,7 +151,10 @@ chatbot_milesguo/
     playground_agentic.ipynb    # Agentic workflow playground
     playground_agentic_stream.ipynb  # Agentic streaming playground
     graph.mmd                   # Mermaid graph diagram
-    deploy.sh                   # Deployment helper
+
+  deploy/                      # Deployment configurations
+    deploy.sh                   # Simple gcloud deployment script
+    terraform/                  # Terraform IaC configuration
 
   test/                        # Unit/integration tests
 
