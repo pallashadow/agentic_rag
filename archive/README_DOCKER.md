@@ -24,7 +24,7 @@ This directory contains Docker configuration files for deploying the chatbot to 
 Build the Docker image locally:
 
 ```bash
-docker build -t chatbot-milesguo -f docker/Dockerfile .
+docker build -t chatbot-app -f docker/Dockerfile .
 ```
 
 Run the container locally:
@@ -36,7 +36,7 @@ docker run -p 8080:8080 \
   -e GOOGLE_API_KEY=your_key \
   -e ELASTIC_URL=your_url \
   -e ELASTIC_API_KEY=your_key \
-  chatbot-milesguo
+  chatbot-app
 ```
 
 ## Deploy to Cloud Run
@@ -56,17 +56,17 @@ gcloud builds submit --config docker/cloudbuild.yaml
 export PROJECT_ID=your-project-id
 
 # Build the image
-docker build -t gcr.io/$PROJECT_ID/chatbot-milesguo:latest -f docker/Dockerfile .
+docker build -t gcr.io/$PROJECT_ID/your-function-name:latest -f docker/Dockerfile .
 
 # Push to Container Registry
-docker push gcr.io/$PROJECT_ID/chatbot-milesguo:latest
+docker push gcr.io/$PROJECT_ID/your-function-name:latest
 ```
 
 2. Deploy to Cloud Run:
 
 ```bash
-gcloud run deploy chatbot-milesguo \
-  --image gcr.io/$PROJECT_ID/chatbot-milesguo:latest \
+gcloud run deploy your-function-name \
+  --image gcr.io/$PROJECT_ID/your-function-name:latest \
   --region us-central1 \
   --platform managed \
   --allow-unauthenticated \

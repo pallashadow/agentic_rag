@@ -108,7 +108,7 @@ For team collaboration, consider using remote state:
 terraform {
   backend "gcs" {
     bucket = "your-terraform-state-bucket"
-    prefix = "chatbot-milesguo"
+    prefix = "chatbot-app"
   }
 }
 ```

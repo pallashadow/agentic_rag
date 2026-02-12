@@ -24,14 +24,14 @@ gcloud builds submit --config docker/cloudbuild.yaml
 1. Build and push image:
 ```bash
 export PROJECT_ID=your-project-id
-docker build -t gcr.io/$PROJECT_ID/chatbot-milesguo:latest -f docker/Dockerfile .
-docker push gcr.io/$PROJECT_ID/chatbot-milesguo:latest
+docker build -t gcr.io/$PROJECT_ID/your-function-name:latest -f docker/Dockerfile .
+docker push gcr.io/$PROJECT_ID/your-function-name:latest
 ```
 
 2. Deploy to Cloud Run:
 ```bash
-gcloud run deploy chatbot-milesguo \
-  --image gcr.io/$PROJECT_ID/chatbot-milesguo:latest \
+gcloud run deploy your-function-name \
+  --image gcr.io/$PROJECT_ID/your-function-name:latest \
   --region us-central1 \
   --platform managed \
   --allow-unauthenticated \
@@ -44,7 +44,7 @@ gcloud run deploy chatbot-milesguo \
 
 3. Set environment variables:
 ```bash
-gcloud run services update chatbot-milesguo \
+gcloud run services update your-function-name \
   --region us-central1 \
   --set-env-vars OPENAI_API_KEY=your_key,GOOGLE_API_KEY=your_key,ELASTIC_URL=your_url,ELASTIC_API_KEY=your_key
 ```
@@ -59,7 +59,7 @@ Required:
 
 Set via console or CLI:
 ```bash
-gcloud run services update chatbot-milesguo \
+gcloud run services update your-function-name \
   --region us-central1 \
   --update-env-vars KEY=VALUE
 ```
@@ -82,8 +82,8 @@ gcloud secrets add-iam-policy-binding openai-api-key \
 
 3. Deploy with secrets:
 ```bash
-gcloud run deploy chatbot-milesguo \
-  --image gcr.io/$PROJECT_ID/chatbot-milesguo:latest \
+gcloud run deploy your-function-name \
+  --image gcr.io/$PROJECT_ID/your-function-name:latest \
   --region us-central1 \
   --update-secrets OPENAI_API_KEY=openai-api-key:latest,ELASTIC_URL=elastic-url:latest,ELASTIC_API_KEY=elastic-api-key:latest
 ```
@@ -98,7 +98,7 @@ gcloud run deploy chatbot-milesguo \
 
 ### Update Configuration
 ```bash
-gcloud run services update chatbot-milesguo \
+gcloud run services update your-function-name \
   --region us-central1 \
   --memory 4Gi \
   --cpu 1 \
@@ -109,13 +109,13 @@ gcloud run services update chatbot-milesguo \
 ## Get Service URL
 
 ```bash
-gcloud run services describe chatbot-milesguo --region us-central1 --format 'value(status.url)'
+gcloud run services describe your-function-name --region us-central1 --format 'value(status.url)'
 ```
 
 ## View Logs
 
 ```bash
-gcloud run services logs read chatbot-milesguo --region us-central1
+gcloud run services logs read your-function-name --region us-central1
 ```
 
 ## Notes

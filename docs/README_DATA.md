@@ -21,10 +21,10 @@ data/data_miles/
 
 ### Step 1: Download Documents (`documents/`)
 
-**Source:** `lib/data/downloader_miles.py` - `MilesGuoDataDownloader`
+**Source:** Dataset-specific downloader module (for example: `lib/data/downloader_*.py`)
 
 **Process:**
-- Crawls 72 listing pages from `https://gwins.org/cn/milesguo/list_2_{1..72}.html`
+- Crawls listing pages from the configured source site
 - Extracts ~2,866 article URLs from listing pages
 - Downloads each article's HTML content using multi-threaded crawler (8 workers)
 - Extracts text content from HTML and saves as `{id}.txt` files
@@ -36,9 +36,9 @@ data/data_miles/
 
 **Usage in notebook:**
 ```python
-from lib.data.downloader_miles import MilesGuoDataDownloader
+from lib.data.downloader_dataset import DatasetDataDownloader
 
-downloader = MilesGuoDataDownloader(
+downloader = DatasetDataDownloader(
     out_folder="./data/data_miles/documents/",
     max_workers=8
 )

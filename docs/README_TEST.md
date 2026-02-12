@@ -1,6 +1,6 @@
 # Test Suite
 
-Unit tests for the chatbot_milesguo project. All external dependencies (Elasticsearch, LiteLLM API, file I/O) are mocked.
+Unit tests for this project. All external dependencies (Elasticsearch, LiteLLM API, file I/O) are mocked.
 
 ## Setup
 

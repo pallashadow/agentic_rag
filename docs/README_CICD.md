@@ -27,7 +27,7 @@ Related workflow files:
 
 - Workflow: `deploy-backend.yml`
 - Primary goal: run `deploy/deploy.sh` to deploy the backend to GCP Cloud Functions
-- Function name (hardcoded in script): `chatbot-milesguo`
+- Function name (hardcoded in script): `your-function-name`
 - Region: `us-central1`
 
 ## 2. Trigger Rules

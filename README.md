@@ -1,4 +1,4 @@
-# chatbot_milesguo
+# Agentic Rag Demo
 
 This is a demonstration of using Agentic RAG to chat with documents
 author: pannixilin  
@@ -19,12 +19,12 @@ frontend: https://pallashadow.github.io/agentic_rag/agentic.html
      - `ELASTIC_URL`: Elasticsearch server URL
      - `ELASTIC_API_KEY`: Elasticsearch API key
 3. Set up Elasticsearch: The project uses Elasticsearch Serverless for document indexing and search
-4. Prepare data: Run one of the notebooks in `scripts/` (e.g. `scripts/data_prepare_miles.ipynb`) to download and process the data
+4. Prepare data: Run one of the notebooks in `scripts/` (e.g. `scripts/data_prepare_*.ipynb`) to download and process the data
 
 ## Usage
 
 ### Data Preparation
-Run one of the dataset-specific notebooks in `scripts/` (for example `scripts/data_prepare_miles.ipynb`) to:
+Run one of the dataset-specific notebooks in `scripts/` (for example `scripts/data_prepare_*.ipynb`) to:
 - Download text from [`gwins.org`](https://gwins.org/)
 - Process and split text into chunks
 - Generate summaries and titles
@@ -103,7 +103,7 @@ Note: browser calls require CORS. This repo enables CORS via FastAPI `CORSMiddle
 ## Project Structure
 
 ```
-chatbot_milesguo/
+project_root/
   main.py                      # FastAPI app entry point (also used for Cloud Functions)
   requirements.txt             # Runtime dependencies
   requirements-dev.txt         # Dev dependencies

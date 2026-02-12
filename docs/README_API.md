@@ -6,7 +6,7 @@ Base URL: `http://127.0.0.1:8080` (default port, configurable via `PORT` environ
 
 ### `GET /`
 ```json
-{"message": "chatbot milesguo backend"}
+{"message": "chatbot backend"}
 ```
 
 ### `GET /version`
@@ -118,13 +118,13 @@ source .env
 
 # Recommended: Use -G with --data-urlencode for proper URL encoding (handles Chinese characters)
 curl -G "http://127.0.0.1:8080/search_naive" \
-  --data-urlencode "txt_query=郭文贵" \
+  --data-urlencode "txt_query=人工智能" \
   --data-urlencode "chunk_index=data_miles" \
   --data-urlencode "k=10" \
   --data-urlencode "token=$API_AUTH_TOKEN"
 
 curl -G "http://127.0.0.1:8080/search" \
-  --data-urlencode "txt_query=爆料革命" \
+  --data-urlencode "txt_query=项目背景" \
   --data-urlencode "chunk_index=data_miles" \
   --data-urlencode "title_k=3" \
   --data-urlencode "chunk_k=12" \
@@ -132,34 +132,34 @@ curl -G "http://127.0.0.1:8080/search" \
   --data-urlencode "token=$API_AUTH_TOKEN"
 
 curl -G "http://127.0.0.1:8080/chatbot" \
-  --data-urlencode "txt_query=什么是爆料革命" \
+  --data-urlencode "txt_query=这个项目的核心功能是什么" \
   --data-urlencode "chunk_index=data_miles" \
   --data-urlencode "token=$API_AUTH_TOKEN"
 
 # With query_context (conversation history):
 curl -G "http://127.0.0.1:8080/chatbot" \
-  --data-urlencode "txt_query=什么是爆料革命" \
+  --data-urlencode "txt_query=请继续说明上一条回答" \
   --data-urlencode "chunk_index=data_miles" \
-  --data-urlencode "query_context=用户: 郭文贵是谁" \
-  --data-urlencode "query_context=助手: 郭文贵是..." \
+  --data-urlencode "query_context=用户: RAG 是什么" \
+  --data-urlencode "query_context=助手: RAG 是一种检索增强生成方法..." \
   --data-urlencode "token=$API_AUTH_TOKEN"
 
 # Agentic RAG endpoint:
 curl -G "http://127.0.0.1:8080/agentic_rag" \
-  --data-urlencode "txt_query=什么是爆料革命" \
+  --data-urlencode "txt_query=请解释检索流程" \
   --data-urlencode "chunk_index=data_miles" \
   --data-urlencode "max_iter=2" \
   --data-urlencode "token=$API_AUTH_TOKEN"
 
 # Or use Authorization header (also handles Chinese properly):
 curl -G "http://127.0.0.1:8080/chatbot" \
-  --data-urlencode "txt_query=什么是爆料革命" \
+  --data-urlencode "txt_query=请给一个系统概览" \
   --data-urlencode "chunk_index=data_miles" \
   -H "Authorization: Bearer $API_AUTH_TOKEN"
 
 # Cloud Functions example:
-curl -G "https://us-central1-xixibaigao.cloudfunctions.net/chatbot-milesguo/chatbot" \
-  --data-urlencode "txt_query=什么是爆料革命" \
+curl -G "https://us-central1-xixibaigao.cloudfunctions.net/your-function-name/chatbot" \
+  --data-urlencode "txt_query=请介绍 API 的主要端点" \
   --data-urlencode "chunk_index=data_miles" \
   --data-urlencode "token=$API_AUTH_TOKEN"
 ```
@@ -169,22 +169,22 @@ import requests
 
 # Basic request
 response = requests.get("http://127.0.0.1:8080/chatbot", params={
-    "txt_query": "什么是新中国联邦?",
+    "txt_query": "这个系统的核心能力是什么?",
     "chunk_index": "data_miles"
 })
 print(response.json()["content"])
 
 # With query_context (conversation history)
 response = requests.get("http://127.0.0.1:8080/chatbot", params={
-    "txt_query": "什么是新中国联邦?",
+    "txt_query": "请继续展开上一条回答",
     "chunk_index": "data_miles",
-    "query_context": ["用户: 郭文贵是谁", "助手: 郭文贵是..."]
+    "query_context": ["用户: RAG 是什么", "助手: RAG 是一种检索增强生成方法..."]
 })
 print(response.json()["content"])
 
 # Agentic RAG request
 response = requests.get("http://127.0.0.1:8080/agentic_rag", params={
-    "txt_query": "什么是新中国联邦?",
+    "txt_query": "请说明 agentic 检索流程",
     "chunk_index": "data_miles",
     "max_iter": 2
 })
