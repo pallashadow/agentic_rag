@@ -18,6 +18,11 @@ Related workflow files:
 - Primary goal: deploy the `frontend/` directory to GitHub Pages
 - Deployment environment: `github-pages`
 
+> **Important:** The frontend workflow does **not** run TypeScript build steps.
+> It uploads `frontend/` as-is. If you changed files under `frontend/src/*.ts`,
+> you must run `tsc -p frontend/tsconfig.json` locally and commit updated files
+> under `frontend/dist/` before pushing, otherwise production pages will still use old JS.
+
 ### Backend (Google Cloud Functions)
 
 - Workflow: `deploy-backend.yml`
@@ -54,6 +59,12 @@ Main steps in `deploy-frontend.yml`:
 3. Configure GitHub Pages (`actions/configure-pages@v4`)
 4. Upload `frontend/` as the Pages artifact
 5. Deploy to GitHub Pages (`actions/deploy-pages@v4`)
+
+Build note:
+
+- No `npm install`, `npm run build`, or `tsc` is executed in this workflow.
+- Frontend JS must be prebuilt locally:
+  - `tsc -p frontend/tsconfig.json`
 
 ## 4. Backend Deployment Flow
 
@@ -104,6 +115,7 @@ Recommended cases for manual release:
 - Confirm the URL path is correct (for example, `.../agentic.html`)
 - Check browser cache and force refresh
 - Verify in Actions that the latest run reached `Deploy to GitHub Pages`
+- If you changed `frontend/src/*.ts`, confirm you rebuilt and committed `frontend/dist/*.js`
 
 ### Backend deploy failed (authentication related)
 
