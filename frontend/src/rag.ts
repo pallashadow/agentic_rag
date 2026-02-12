@@ -35,6 +35,7 @@ let sendBtn: HTMLButtonElement;
 let cancelBtn: HTMLButtonElement;
 let errorLine: HTMLElement;
 
+// Render expandable source diagnostics so users can verify where each answer fragment came from.
 function renderSourcesDetails(
   container: HTMLElement,
   sources: Source[],
@@ -101,6 +102,7 @@ function renderSourcesDetails(
   container.appendChild(details);
 }
 
+// Show a compact progress badge that confirms retrieval produced source candidates.
 function renderSourcesProgress(container: HTMLElement, sources: Source[]): void {
   if (!sources || !Array.isArray(sources) || sources.length === 0) return;
   const progressDiv = document.createElement("div");
@@ -112,6 +114,7 @@ function renderSourcesProgress(container: HTMLElement, sources: Source[]): void 
   container.appendChild(progressDiv);
 }
 
+// Create or refresh a chat bubble while keeping message actions and debug sections in sync.
 function addMessage(options: MessageOptions): HTMLElement {
   const {
     role,
@@ -295,6 +298,7 @@ function addMessage(options: MessageOptions): HTMLElement {
   return bubble;
 }
 
+// Read runtime settings from form controls and clamp values to backend-supported ranges.
 function getSettingsFromUI(): RAGSettings {
   // Clamp values to valid ranges
   const chunkKValue = Number(chunkK.value || 10);
@@ -310,6 +314,7 @@ function getSettingsFromUI(): RAGSettings {
   };
 }
 
+// Hydrate form controls from persisted settings so the UI mirrors the effective request config.
 function applySettingsToUI(s: Partial<RAGSettings>): void {
   cloudBase.value = s.cloudBase ?? "";
   titleK.value = String(Number.isFinite(s.titleK) ? s.titleK : 3);
@@ -318,18 +323,20 @@ function applySettingsToUI(s: Partial<RAGSettings>): void {
   chunkIndex.value = s.chunkIndex ?? "";
 }
 
+// Load settings with defaults to keep the page usable even when storage is empty or invalid.
 function loadSettings(): RAGSettings {
   const defaults: RAGSettings = {
     cloudBase: "https://us-central1-xixibaigao.cloudfunctions.net/chatbot-milesguo/chatbot_stream",
     titleK: 3,
     chunkK: 10,
     queryExpandK: 1,
-    chunkIndex: "",
+    chunkIndex: "miles_guo",
     authToken: "",
   };
   return loadSettingsFromStorage<RAGSettings>(STORAGE_KEY, defaults);
 }
 
+// Persist validated settings so repeated sessions do not require manual reconfiguration.
 function saveSettings(s: RAGSettings): void {
   saveSettingsToStorage(STORAGE_KEY, s);
 }
@@ -340,6 +347,7 @@ let rateLimit: ReturnType<typeof createRateLimitController>;
 // Store conversation history for query_context
 let queryContext: string[] = [];
 
+// Orchestrate one chat turn end-to-end, including cancellation, auth, request dispatch, and UI updates.
 async function sendMessage(): Promise<void> {
   const text = userInput.value.trim();
   if (!text) return;
@@ -383,6 +391,11 @@ async function sendMessage(): Promise<void> {
     errorLine.textContent = "Please fill Cloud Functions URL.";
     return;
   }
+  if (!s.chunkIndex) {
+    errorLine.textContent = "Please fill chunk_index (e.g. miles_guo).";
+    setStatus(statusPill, "Missing chunk_index", true);
+    return;
+  }
 
   // Validate URL format
   try {
@@ -412,10 +425,8 @@ async function sendMessage(): Promise<void> {
   url.searchParams.set("title_k", String(s.titleK));
   url.searchParams.set("chunk_k", String(s.chunkK));
   url.searchParams.set("query_expand_k", String(s.queryExpandK));
-  // Add chunk_index if provided (title_index is computed from chunk_index on backend)
-  if (s.chunkIndex) {
-    url.searchParams.set("chunk_index", s.chunkIndex);
-  }
+  // chunk_index is required by backend and validated above.
+  url.searchParams.set("chunk_index", s.chunkIndex);
   // Query context is intentionally short to balance continuity and URL length constraints.
   // Add query_context if available
   if (queryContext && queryContext.length > 0) {
@@ -485,6 +496,7 @@ async function sendMessage(): Promise<void> {
   }
 }
 
+// Consume SSE responses incrementally to stream assistant text and attach final retrieval metadata.
 async function handleStreamingResponse(
   url: string,
   headers: Record<string, string>,
@@ -624,6 +636,7 @@ async function handleStreamingResponse(
   }
 }
 
+// Handle JSON responses in non-streaming mode while applying the same error and context policies.
 async function handleNonStreamingResponse(
   url: string,
   headers: Record<string, string>,

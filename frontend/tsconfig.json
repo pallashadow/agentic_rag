@@ -1,26 +1,52 @@
 {
   "compilerOptions": {
+    // Emit modern JavaScript so bundlers can optimize effectively.
     "target": "ES2020",
+    // Keep ESM syntax; this matches modern frontend toolchains.
     "module": "ES2020",
+    // Include browser APIs (DOM) and ES2020 built-ins in type checking.
     "lib": ["ES2020", "DOM"],
+
+    // Build output folder (generated files go here).
     "outDir": "./dist",
+    // Source folder (TypeScript input files live here).
     "rootDir": "./src",
+
+    // Enable strict type checking to catch bugs early.
     "strict": true,
+    // Improve compatibility when importing CommonJS packages.
     "esModuleInterop": true,
+    // Skip type-checking *.d.ts from dependencies to speed up builds.
     "skipLibCheck": true,
+    // Prevent issues that only appear on case-sensitive file systems.
     "forceConsistentCasingInFileNames": true,
+
+    // Let the bundler decide final module resolution behavior.
     "moduleResolution": "bundler",
+    // Allow `import data from "./x.json"` with proper typing.
     "resolveJsonModule": true,
+
+    // Do not emit .d.ts files for this frontend app build.
     "declaration": false,
+    // Disable source maps in output (can be turned on for debugging).
     "sourceMap": false,
+    // Keep comments in emitted JS (useful for readable builds/debugging).
     "removeComments": false,
+
+    // Relaxed for development; can be enabled for stricter cleanup.
     "noUnusedLocals": false,
+    // Relaxed for development; warns less on temporary parameters.
     "noUnusedParameters": false,
+    // Ensure every code path in a function returns when expected.
     "noImplicitReturns": true,
+    // Catch accidental switch-case fallthrough bugs.
     "noFallthroughCasesInSwitch": true,
+    // Allow default imports from modules without a default export.
     "allowSyntheticDefaultImports": true
   },
+  // Only compile TypeScript source files under src/.
   "include": ["src/**/*.ts"],
+  // Ignore dependencies and root-level JavaScript files.
   "exclude": ["node_modules", "*.js"]
 }
 

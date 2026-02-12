@@ -61,6 +61,7 @@ export async function copyToClipboard(text) {
 let cachedAuthToken = null;
 let tokenFetchPromise = null;
 let cachedTokenBaseUrl = null;
+// Reset token cache when backend base URL changes so stale credentials are never reused across environments.
 export function clearTokenCache() {
     cachedAuthToken = null;
     tokenFetchPromise = null;
@@ -78,6 +79,7 @@ export async function fetchAuthTokenFromBackend(baseUrlRaw) {
         clearTokenCache();
         cachedTokenBaseUrl = baseUrl;
     }
+    // Reuse the same in-flight promise so quick repeated sends do not trigger duplicate token requests.
     if (tokenFetchPromise)
         return tokenFetchPromise;
     tokenFetchPromise = (async () => {
@@ -134,6 +136,7 @@ export async function fetchAuthTokenFromBackend(baseUrlRaw) {
 export function getAuthToken() {
     const params = new URLSearchParams(window.location.search);
     const urlToken = params.get("token");
+    // URL token wins intentionally, making one-off debugging overrides easy without code changes.
     if (urlToken)
         return urlToken.trim();
     return (cachedAuthToken && cachedAuthToken.trim()) || "";

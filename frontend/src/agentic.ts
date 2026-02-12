@@ -43,6 +43,7 @@ let sendBtn: HTMLButtonElement;
 let cancelBtn: HTMLButtonElement;
 let errorLine: HTMLElement;
 
+// Render expandable source diagnostics so users can audit evidence behind agentic answers.
 function renderSourcesDetails(
   container: HTMLElement,
   sources: Source[],
@@ -108,6 +109,7 @@ function renderSourcesDetails(
   container.appendChild(details);
 }
 
+// Display lightweight workflow progress to expose search iterations and query strategy at a glance.
 function renderAgenticProgress(
   container: HTMLElement,
   { sources, searchCount, queryType }: { sources?: Source[] | null; searchCount?: number | null; queryType?: string | null }
@@ -141,6 +143,7 @@ function renderAgenticProgress(
   container.appendChild(progressDiv);
 }
 
+// Render optional debug metadata panels that explain how the agent reached its final response.
 function renderAgenticDetails(
   container: HTMLElement,
   {
@@ -221,6 +224,7 @@ function renderAgenticDetails(
   }
 }
 
+// Create or refresh a chat bubble while keeping interactive actions and diagnostics consistent.
 function addMessage(options: MessageOptions): HTMLElement {
   const {
     role,
@@ -393,6 +397,7 @@ function addMessage(options: MessageOptions): HTMLElement {
   return bubble;
 }
 
+// Read form values into request settings and clamp numeric knobs to backend-safe ranges.
 function getSettingsFromUI(): AgenticSettings {
   // Clamp values to valid ranges
   const chunkKValue = Number(chunkK.value || 10);
@@ -410,6 +415,7 @@ function getSettingsFromUI(): AgenticSettings {
   };
 }
 
+// Apply persisted settings back to controls so the UI reflects the current effective configuration.
 function applySettingsToUI(s: Partial<AgenticSettings>): void {
   cloudBase.value = s.cloudBase ?? "";
   titleK.value = String(Number.isFinite(s.titleK) ? s.titleK : 3);
@@ -419,19 +425,21 @@ function applySettingsToUI(s: Partial<AgenticSettings>): void {
   maxIter.value = String(Number.isFinite(s.maxIter) ? s.maxIter : 2);
 }
 
+// Restore settings with defaults to guarantee a valid baseline even when storage is missing.
 function loadSettings(): AgenticSettings {
   const defaults: AgenticSettings = {
     cloudBase: "https://us-central1-xixibaigao.cloudfunctions.net/chatbot-milesguo/agentic_rag_stream",
     titleK: 3,
     chunkK: 12,
     queryExpandK: 1,
-    chunkIndex: "",
+    chunkIndex: "miles_guo",
     maxIter: 2,
     authToken: "",
   };
   return loadSettingsFromStorage<AgenticSettings>(STORAGE_KEY, defaults);
 }
 
+// Persist current settings to keep workflow parameters stable across page reloads.
 function saveSettings(s: AgenticSettings): void {
   saveSettingsToStorage(STORAGE_KEY, s);
 }
@@ -442,6 +450,7 @@ let rateLimit: ReturnType<typeof createRateLimitController>;
 // Store conversation history for query_context
 let queryContext: string[] = [];
 
+// Coordinate a full agentic turn, including cancellation, auth, request mode selection, and UI state.
 async function sendMessage(): Promise<void> {
   const text = userInput.value.trim();
   if (!text) return;
@@ -486,6 +495,11 @@ async function sendMessage(): Promise<void> {
     errorLine.textContent = "Please fill Cloud Functions URL.";
     return;
   }
+  if (!s.chunkIndex) {
+    errorLine.textContent = "Please fill chunk_index (e.g. miles_guo).";
+    setStatus(statusPill, "Missing chunk_index", true);
+    return;
+  }
 
   // Validate URL format
   try {
@@ -517,10 +531,8 @@ async function sendMessage(): Promise<void> {
   url.searchParams.set("chunk_k", String(s.chunkK));
   url.searchParams.set("query_expand_k", String(s.queryExpandK));
   url.searchParams.set("max_iter", String(s.maxIter));
-  // Add chunk_index if provided (title_index is computed from chunk_index on backend)
-  if (s.chunkIndex) {
-    url.searchParams.set("chunk_index", s.chunkIndex);
-  }
+  // chunk_index is required by backend and validated above.
+  url.searchParams.set("chunk_index", s.chunkIndex);
   // Send short rolling conversation context so backend can keep continuity across turns
   // without requiring full transcript replay.
   // Add query_context if available
@@ -591,6 +603,7 @@ async function sendMessage(): Promise<void> {
   }
 }
 
+// Parse agentic SSE events to stream content and capture final workflow diagnostics from done payloads.
 async function handleStreamingResponse(
   url: string,
   headers: Record<string, string>,
@@ -754,6 +767,7 @@ async function handleStreamingResponse(
   }
 }
 
+// Process non-streaming JSON responses with the same context retention and error semantics as streaming.
 async function handleNonStreamingResponse(
   url: string,
   headers: Record<string, string>,

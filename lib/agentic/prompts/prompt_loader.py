@@ -8,7 +8,6 @@ import yaml
 
 _PROJECT_ROOT = Path(__file__).resolve().parents[3]
 _PROMPTS_DIR = _PROJECT_ROOT / "prompts"
-_LEGACY_TEMPLATES_DIR = Path(__file__).resolve().parent / "templates"
 _CACHE: dict[str, dict[str, Any]] = {}
 
 
@@ -22,7 +21,7 @@ def _load_yaml_file(path: Path) -> dict[str, Any]:
     except FileNotFoundError as e:
         raise PromptTemplateError(
             f"Prompt template file not found: {path}. "
-            f"Expected templates under: {_PROMPTS_DIR} (preferred) or {_LEGACY_TEMPLATES_DIR} (legacy)"
+            f"Expected templates under: {_PROMPTS_DIR}"
         ) from e
 
     try:
@@ -40,8 +39,7 @@ def load_prompt_template(template_filename: str) -> dict[str, Any]:
     Load a YAML prompt template.
 
     Search order:
-    - `<project_root>/prompts/` (preferred)
-    - `lib/agentic/prompts/templates/` (legacy fallback)
+    - `<project_root>/prompts/`
 
     Args:
         template_filename: e.g. "entry_prompt.yaml"
@@ -50,7 +48,7 @@ def load_prompt_template(template_filename: str) -> dict[str, Any]:
         dict: Parsed YAML content.
     """
     if template_filename not in _CACHE:
-        search_dirs = (_PROMPTS_DIR, _LEGACY_TEMPLATES_DIR)
+        search_dirs = (_PROMPTS_DIR,)
         found_path: Optional[Path] = None
         for base in search_dirs:
             candidate = base / template_filename

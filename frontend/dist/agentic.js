@@ -18,7 +18,9 @@ let userInput;
 let sendBtn;
 let cancelBtn;
 let errorLine;
+// Render expandable source diagnostics so users can audit evidence behind agentic answers.
 function renderSourcesDetails(container, sources, { showIndex = true } = {}) {
+    // Guard early so callers can pass backend responses directly without pre-validating.
     if (!sources || !Array.isArray(sources) || sources.length === 0)
         return;
     const details = document.createElement("details");
@@ -67,7 +69,9 @@ function renderSourcesDetails(container, sources, { showIndex = true } = {}) {
     details.appendChild(list);
     container.appendChild(details);
 }
+// Display lightweight workflow progress to expose search iterations and query strategy at a glance.
 function renderAgenticProgress(container, { sources, searchCount, queryType }) {
+    // Keep progress rendering optional because non-streaming responses may only have partial metadata.
     const hasSources = sources && Array.isArray(sources) && sources.length > 0;
     const hasSearchCount = searchCount !== null && searchCount !== undefined;
     const hasQueryType = !!queryType;
@@ -93,6 +97,7 @@ function renderAgenticProgress(container, { sources, searchCount, queryType }) {
       `;
     container.appendChild(progressDiv);
 }
+// Render optional debug metadata panels that explain how the agent reached its final response.
 function renderAgenticDetails(container, { sources, querys, queryType, searchCount, historicalSearchOps, prompt, }) {
     if (sources && Array.isArray(sources) && sources.length > 0) {
         renderSourcesDetails(container, sources);
@@ -148,6 +153,7 @@ function renderAgenticDetails(container, { sources, querys, queryType, searchCou
         container.appendChild(d);
     }
 }
+// Create or refresh a chat bubble while keeping interactive actions and diagnostics consistent.
 function addMessage(options) {
     const { role, text = null, sources = null, prompt = null, querys = null, queryType = null, searchCount = null, historicalSearchOps = null, thinking = false, updateBubble = null, useTypewriter = true, } = options;
     // If updateBubble is provided, update existing message instead of creating new one
@@ -168,6 +174,8 @@ function addMessage(options) {
                 }
             }
         }
+        // Rebuild metadata sections from scratch to avoid stale search diagnostics from previous updates.
+        // This keeps the UI aligned with the latest server payload during streaming.
         // Remove existing progress indicator if any
         const existingProgress = updateBubble.querySelectorAll(".progressIndicator");
         existingProgress.forEach((p) => p.remove());
@@ -290,6 +298,7 @@ function addMessage(options) {
     messages.scrollTop = messages.scrollHeight;
     return bubble;
 }
+// Read form values into request settings and clamp numeric knobs to backend-safe ranges.
 function getSettingsFromUI() {
     // Clamp values to valid ranges
     const chunkKValue = Number(chunkK.value || 10);
@@ -305,6 +314,7 @@ function getSettingsFromUI() {
         maxIter: Math.max(1, Math.min(5, maxIterValue)),
     };
 }
+// Apply persisted settings back to controls so the UI reflects the current effective configuration.
 function applySettingsToUI(s) {
     cloudBase.value = s.cloudBase ?? "";
     titleK.value = String(Number.isFinite(s.titleK) ? s.titleK : 3);
@@ -313,18 +323,20 @@ function applySettingsToUI(s) {
     chunkIndex.value = s.chunkIndex ?? "";
     maxIter.value = String(Number.isFinite(s.maxIter) ? s.maxIter : 2);
 }
+// Restore settings with defaults to guarantee a valid baseline even when storage is missing.
 function loadSettings() {
     const defaults = {
         cloudBase: "https://us-central1-xixibaigao.cloudfunctions.net/chatbot-milesguo/agentic_rag_stream",
         titleK: 3,
         chunkK: 12,
         queryExpandK: 1,
-        chunkIndex: "",
+        chunkIndex: "miles_guo",
         maxIter: 2,
         authToken: "",
     };
     return loadSettingsFromStorage(STORAGE_KEY, defaults);
 }
+// Persist current settings to keep workflow parameters stable across page reloads.
 function saveSettings(s) {
     saveSettingsToStorage(STORAGE_KEY, s);
 }
@@ -333,11 +345,13 @@ let currentThinkingBubble = null;
 let rateLimit;
 // Store conversation history for query_context
 let queryContext = [];
+// Coordinate a full agentic turn, including cancellation, auth, request mode selection, and UI state.
 async function sendMessage() {
     const text = userInput.value.trim();
     if (!text)
         return;
     errorLine.textContent = "";
+    // Enforce single in-flight request; this avoids interleaved streaming chunks corrupting the same UI bubble.
     // Cancel previous request if in flight
     if (inFlight) {
         inFlight.abort();
@@ -359,6 +373,7 @@ async function sendMessage() {
             currentThinkingBubble = null;
         }
     }
+    // Try to fetch token lazily so users can paste a backend URL and send immediately.
     // Ensure token is fetched before sending request
     if (!getAuthToken()) {
         const fetchedToken = await fetchAuthTokenFromBackend(cloudBase.value);
@@ -373,6 +388,11 @@ async function sendMessage() {
         errorLine.textContent = "Please fill Cloud Functions URL.";
         return;
     }
+    if (!s.chunkIndex) {
+        errorLine.textContent = "Please fill chunk_index (e.g. miles_guo).";
+        setStatus(statusPill, "Missing chunk_index", true);
+        return;
+    }
     // Validate URL format
     try {
         new URL(endpoint);
@@ -384,6 +404,8 @@ async function sendMessage() {
     }
     addMessage({ role: "user", text });
     userInput.value = "";
+    // Streaming and non-streaming payload shapes are handled differently below,
+    // so detect mode explicitly from the endpoint to keep behavior predictable.
     // Determine if we should use streaming endpoint
     // Only use streaming if the URL explicitly contains /agentic_rag_stream
     let useStreaming = false;
@@ -398,10 +420,10 @@ async function sendMessage() {
     url.searchParams.set("chunk_k", String(s.chunkK));
     url.searchParams.set("query_expand_k", String(s.queryExpandK));
     url.searchParams.set("max_iter", String(s.maxIter));
-    // Add chunk_index if provided (title_index is computed from chunk_index on backend)
-    if (s.chunkIndex) {
-        url.searchParams.set("chunk_index", s.chunkIndex);
-    }
+    // chunk_index is required by backend and validated above.
+    url.searchParams.set("chunk_index", s.chunkIndex);
+    // Send short rolling conversation context so backend can keep continuity across turns
+    // without requiring full transcript replay.
     // Add query_context if available
     if (queryContext && queryContext.length > 0) {
         for (const contextItem of queryContext) {
@@ -467,6 +489,7 @@ async function sendMessage() {
         cancelBtn.disabled = true;
     }
 }
+// Parse agentic SSE events to stream content and capture final workflow diagnostics from done payloads.
 async function handleStreamingResponse(url, headers, controller, thinkingBubble, userText) {
     const res = await fetch(url, {
         method: "GET",
@@ -494,6 +517,8 @@ async function handleStreamingResponse(url, headers, controller, thinkingBubble,
     if (!reader) {
         throw new Error("Response body is not readable");
     }
+    // SSE frames can be split across TCP chunks; retain trailing partial frame in `buffer`
+    // and prepend it to the next chunk before parsing.
     const decoder = new TextDecoder();
     let buffer = "";
     let fullContent = "";
@@ -566,6 +591,8 @@ async function handleStreamingResponse(url, headers, controller, thinkingBubble,
                             }
                         }
                         else if (type === "done") {
+                            // Prefer terminal `done` payload because it represents the server's final merged state,
+                            // even if some incremental chunks were dropped or arrived out of order.
                             // Final update with all data
                             if (typeof chunkData === "object" && chunkData !== null) {
                                 fullContent = chunkData.content || fullContent;
@@ -602,6 +629,7 @@ async function handleStreamingResponse(url, headers, controller, thinkingBubble,
             updateBubble: thinkingBubble,
             useTypewriter: false, // Already displayed via streaming
         });
+        // Keep context bounded to avoid oversized URLs and backend query_context growth.
         // Keep the last 3 Q&A pairs (6 messages) for context
         queryContext.push(`用户: ${userText}`, `助手: ${fullContent}`);
         if (queryContext.length > 6) {
@@ -614,6 +642,7 @@ async function handleStreamingResponse(url, headers, controller, thinkingBubble,
         throw e;
     }
 }
+// Process non-streaming JSON responses with the same context retention and error semantics as streaming.
 async function handleNonStreamingResponse(url, headers, controller, thinkingBubble, userText) {
     const res = await fetch(url, {
         method: "GET",
@@ -660,6 +689,7 @@ async function handleNonStreamingResponse(url, headers, controller, thinkingBubb
         updateBubble: thinkingBubble,
         useTypewriter: true,
     });
+    // Mirror the same context retention policy as streaming mode for consistent backend behavior.
     // Keep the last 3 Q&A pairs (6 messages) for context
     queryContext.push(`用户: ${userText}`, `助手: ${content}`);
     // Keep only the last 6 messages (3 rounds of Q&A)

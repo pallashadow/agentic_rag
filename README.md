@@ -86,7 +86,7 @@ The project includes `main.py` which contains the FastAPI app for Cloud Function
 
 ## Frontend (static)
 
-The frontend is automatically deployed to GitHub Pages via GitHub Actions workflow (`.github/workflows/deploy.yml`). Every time code is merged to `main`, `master`, or `v2` branch, the frontend is automatically updated on GitHub Pages.
+The frontend is automatically deployed to GitHub Pages via GitHub Actions workflow (`.github/workflows/deploy-frontend.yml`). Every time code is merged to `main`, `master`, or `v2` branch, the frontend is automatically updated on GitHub Pages.
 
 **Local Development:**
 Open `frontend/rag.html` (traditional RAG) or `frontend/agentic.html` (agentic RAG) in a browser, set the Cloud Functions base URL + function name, then start chatting.

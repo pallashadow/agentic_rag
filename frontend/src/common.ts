@@ -76,6 +76,7 @@ let cachedAuthToken: string | null = null;
 let tokenFetchPromise: Promise<string | null> | null = null;
 let cachedTokenBaseUrl: string | null = null;
 
+// Reset token cache when backend base URL changes so stale credentials are never reused across environments.
 export function clearTokenCache(): void {
   cachedAuthToken = null;
   tokenFetchPromise = null;

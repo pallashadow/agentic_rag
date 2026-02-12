@@ -26,8 +26,11 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token", auto_error=False)
 def setup_cors(app) -> None:
     # Allow browser-based frontends to call this API.
     # Configure via `CORS_ALLOW_ORIGINS` (comma-separated) or "*" to allow all.
-    cors_allow_origins = os.environ.get("CORS_ALLOW_ORIGINS", "*").strip()
-    if cors_allow_origins == "*":
+    cors_allow_origins_raw = os.environ.get("CORS_ALLOW_ORIGINS")
+    # Treat missing/empty config as wildcard so deployment mistakes do not silently disable CORS.
+    # Motivation: some deployment paths can inject empty env values.
+    cors_allow_origins = (cors_allow_origins_raw or "").strip()
+    if not cors_allow_origins or cors_allow_origins == "*":
         cors_origins = ["*"]
     else:
         cors_origins = [o.strip() for o in cors_allow_origins.split(",") if o.strip()]

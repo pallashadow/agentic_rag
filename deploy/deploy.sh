@@ -45,9 +45,14 @@ if [ -n "$API_AUTH_TOKEN" ]; then
     ENV_VARS="$ENV_VARS,API_AUTH_TOKEN=$API_AUTH_TOKEN"
 fi
 
-if [ -n "$CORS_ALLOW_ORIGINS" ]; then
-    ENV_VARS="$ENV_VARS,CORS_ALLOW_ORIGINS=$CORS_ALLOW_ORIGINS"
+# Always set CORS explicitly to avoid environment drift between deployments.
+# Motivation: missing/empty CORS value is a common reason for browser-side failures.
+if [ -z "$CORS_ALLOW_ORIGINS" ]; then
+    CORS_ALLOW_ORIGINS="https://pallashadow.github.io"
+    echo "CORS_ALLOW_ORIGINS is empty; defaulting to $CORS_ALLOW_ORIGINS"
 fi
+ENV_VARS="$ENV_VARS,CORS_ALLOW_ORIGINS=$CORS_ALLOW_ORIGINS"
+echo "Effective CORS_ALLOW_ORIGINS: $CORS_ALLOW_ORIGINS"
 
 # Deploy with verbose output
 gcloud functions deploy chatbot-milesguo \

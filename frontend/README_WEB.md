@@ -106,7 +106,7 @@ Update API URLs in `rag.html` and `agentic.html` to point to your production bac
 
 Add GitHub Pages URL to backend `CORS_ALLOW_ORIGINS` environment variable.
 example: 
-`CORS_ALLOW_ORIGINS=https://pannixilinnfsc.github.io`
+`CORS_ALLOW_ORIGINS=https://pallashadow.github.io`
 
 ## Custom Domain
 

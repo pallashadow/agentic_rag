@@ -17,7 +17,9 @@ let userInput;
 let sendBtn;
 let cancelBtn;
 let errorLine;
+// Render expandable source diagnostics so users can verify where each answer fragment came from.
 function renderSourcesDetails(container, sources, { includeIndex = true } = {}) {
+    // Accept backend payloads directly and no-op on empty results to keep callers simple.
     if (!sources || !Array.isArray(sources) || sources.length === 0)
         return;
     const details = document.createElement("details");
@@ -66,6 +68,7 @@ function renderSourcesDetails(container, sources, { includeIndex = true } = {}) 
     details.appendChild(list);
     container.appendChild(details);
 }
+// Show a compact progress badge that confirms retrieval produced source candidates.
 function renderSourcesProgress(container, sources) {
     if (!sources || !Array.isArray(sources) || sources.length === 0)
         return;
@@ -77,6 +80,7 @@ function renderSourcesProgress(container, sources) {
         `;
     container.appendChild(progressDiv);
 }
+// Create or refresh a chat bubble while keeping message actions and debug sections in sync.
 function addMessage(options) {
     const { role, text = null, sources = null, prompt = null, querys = null, thinking = false, updateBubble = null, useTypewriter = true, } = options;
     // If updateBubble is provided, update existing message instead of creating new one
@@ -97,6 +101,7 @@ function addMessage(options) {
                 }
             }
         }
+        // Recreate dynamic sections each update so streaming refreshes do not stack duplicated UI.
         // Remove existing progress indicator if any
         const existingProgress = updateBubble.querySelectorAll(".progressIndicator");
         existingProgress.forEach((p) => p.remove());
@@ -233,6 +238,7 @@ function addMessage(options) {
     messages.scrollTop = messages.scrollHeight;
     return bubble;
 }
+// Read runtime settings from form controls and clamp values to backend-supported ranges.
 function getSettingsFromUI() {
     // Clamp values to valid ranges
     const chunkKValue = Number(chunkK.value || 10);
@@ -246,6 +252,7 @@ function getSettingsFromUI() {
         chunkIndex: chunkIndex.value.trim() || null,
     };
 }
+// Hydrate form controls from persisted settings so the UI mirrors the effective request config.
 function applySettingsToUI(s) {
     cloudBase.value = s.cloudBase ?? "";
     titleK.value = String(Number.isFinite(s.titleK) ? s.titleK : 3);
@@ -253,17 +260,19 @@ function applySettingsToUI(s) {
     queryExpandK.value = String(Number.isFinite(s.queryExpandK) ? s.queryExpandK : 1);
     chunkIndex.value = s.chunkIndex ?? "";
 }
+// Load settings with defaults to keep the page usable even when storage is empty or invalid.
 function loadSettings() {
     const defaults = {
         cloudBase: "https://us-central1-xixibaigao.cloudfunctions.net/chatbot-milesguo/chatbot_stream",
         titleK: 3,
         chunkK: 10,
         queryExpandK: 1,
-        chunkIndex: "",
+        chunkIndex: "miles_guo",
         authToken: "",
     };
     return loadSettingsFromStorage(STORAGE_KEY, defaults);
 }
+// Persist validated settings so repeated sessions do not require manual reconfiguration.
 function saveSettings(s) {
     saveSettingsToStorage(STORAGE_KEY, s);
 }
@@ -272,11 +281,13 @@ let currentThinkingBubble = null;
 let rateLimit;
 // Store conversation history for query_context
 let queryContext = [];
+// Orchestrate one chat turn end-to-end, including cancellation, auth, request dispatch, and UI updates.
 async function sendMessage() {
     const text = userInput.value.trim();
     if (!text)
         return;
     errorLine.textContent = "";
+    // Keep one active request to prevent mixed responses updating the same conversation state.
     // Cancel previous request if in flight
     if (inFlight) {
         inFlight.abort();
@@ -312,6 +323,11 @@ async function sendMessage() {
         errorLine.textContent = "Please fill Cloud Functions URL.";
         return;
     }
+    if (!s.chunkIndex) {
+        errorLine.textContent = "Please fill chunk_index (e.g. miles_guo).";
+        setStatus(statusPill, "Missing chunk_index", true);
+        return;
+    }
     // Validate URL format
     try {
         new URL(endpoint);
@@ -337,10 +353,9 @@ async function sendMessage() {
     url.searchParams.set("title_k", String(s.titleK));
     url.searchParams.set("chunk_k", String(s.chunkK));
     url.searchParams.set("query_expand_k", String(s.queryExpandK));
-    // Add chunk_index if provided (title_index is computed from chunk_index on backend)
-    if (s.chunkIndex) {
-        url.searchParams.set("chunk_index", s.chunkIndex);
-    }
+    // chunk_index is required by backend and validated above.
+    url.searchParams.set("chunk_index", s.chunkIndex);
+    // Query context is intentionally short to balance continuity and URL length constraints.
     // Add query_context if available
     if (queryContext && queryContext.length > 0) {
         for (const contextItem of queryContext) {
@@ -406,6 +421,7 @@ async function sendMessage() {
         cancelBtn.disabled = true;
     }
 }
+// Consume SSE responses incrementally to stream assistant text and attach final retrieval metadata.
 async function handleStreamingResponse(url, headers, controller, thinkingBubble, userText) {
     const res = await fetch(url, {
         method: "GET",
@@ -433,6 +449,7 @@ async function handleStreamingResponse(url, headers, controller, thinkingBubble,
     if (!reader) {
         throw new Error("Response body is not readable");
     }
+    // Preserve partial SSE frames in `buffer` because network chunks may split event boundaries.
     const decoder = new TextDecoder();
     let buffer = "";
     let fullContent = "";
@@ -483,6 +500,7 @@ async function handleStreamingResponse(url, headers, controller, thinkingBubble,
                             }
                         }
                         else if (type === "done") {
+                            // Trust terminal payload as source of truth for final content/metadata.
                             // Final update with all data
                             if (typeof chunkData === "object" && chunkData !== null) {
                                 fullContent = chunkData.content || fullContent;
@@ -517,6 +535,7 @@ async function handleStreamingResponse(url, headers, controller, thinkingBubble,
             updateBubble: thinkingBubble,
             useTypewriter: false, // Already displayed via streaming
         });
+        // Bound context growth to keep requests predictable over long sessions.
         // Keep the last 3 Q&A pairs (6 messages) for context
         queryContext.push(`用户: ${userText}`, `助手: ${fullContent}`);
         if (queryContext.length > 6) {
@@ -529,6 +548,7 @@ async function handleStreamingResponse(url, headers, controller, thinkingBubble,
         throw e;
     }
 }
+// Handle JSON responses in non-streaming mode while applying the same error and context policies.
 async function handleNonStreamingResponse(url, headers, controller, thinkingBubble, userText) {
     const res = await fetch(url, {
         method: "GET",
@@ -573,6 +593,7 @@ async function handleNonStreamingResponse(url, headers, controller, thinkingBubb
         updateBubble: thinkingBubble,
         useTypewriter: true,
     });
+    // Match the same retention window used in streaming mode.
     // Keep the last 3 Q&A pairs (6 messages) for context
     queryContext.push(`用户: ${userText}`, `助手: ${content}`);
     // Keep only the last 6 messages (3 rounds of Q&A)
