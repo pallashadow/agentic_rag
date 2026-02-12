@@ -37,6 +37,24 @@ echo "Region: us-central1"
 echo "Runtime: python311"
 echo ""
 
+# Show active gcloud identity for easier CI debugging.
+ACTIVE_ACCOUNT="$(gcloud config get-value account 2>/dev/null || true)"
+ACTIVE_PROJECT="$(gcloud config get-value project 2>/dev/null || true)"
+echo "gcloud account: ${ACTIVE_ACCOUNT:-<unknown>}"
+echo "gcloud project: ${ACTIVE_PROJECT:-<unknown>}"
+
+# Fail early with a clear action list if project access is unavailable.
+# Motivation: CI often fails late during deploy with less actionable output.
+if ! gcloud projects describe "$ACTIVE_PROJECT" --format='value(projectNumber)' >/dev/null 2>&1; then
+    echo ""
+    echo "Error: Unable to access GCP project '$ACTIVE_PROJECT'."
+    echo "Please check all of the following before retrying:"
+    echo "  1) cloudresourcemanager.googleapis.com is enabled on the project"
+    echo "  2) This service account can access the project (at least Viewer/Browser)"
+    echo "  3) The credentials file points to the intended deploy service account"
+    exit 1
+fi
+
 # Build environment variables string
 ENV_VARS="OPENAI_API_KEY=$OPENAI_API_KEY,GOOGLE_API_KEY=$GOOGLE_API_KEY,ELASTIC_URL=$ELASTIC_URL,ELASTIC_API_KEY=$ELASTIC_API_KEY"
 
@@ -56,6 +74,7 @@ echo "Effective CORS_ALLOW_ORIGINS: $CORS_ALLOW_ORIGINS"
 
 # Deploy with verbose output
 gcloud functions deploy chatbot-milesguo \
+  --quiet \
   --gen2 \
   --runtime python311 \
   --region us-central1 \

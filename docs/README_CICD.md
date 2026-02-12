@@ -122,6 +122,13 @@ Recommended cases for manual release:
 - Ensure `GCP_SA_KEY` is a complete and valid JSON
 - Ensure the Service Account has required permissions for Cloud Functions/Cloud Run/Artifact Registry
 - Ensure `GCP_PROJECT_ID` matches the target project
+- Ensure these APIs are enabled in the target project:
+  - `cloudresourcemanager.googleapis.com`
+  - `cloudfunctions.googleapis.com`
+  - `run.googleapis.com`
+  - `cloudbuild.googleapis.com`
+  - `artifactregistry.googleapis.com`
+  - `serviceusage.googleapis.com`
 
 ### Backend deploy succeeded but requests fail
 
