@@ -259,7 +259,7 @@ async def test_search_ops_routes_to_all_operation_types(elastic_mix_with_mocks):
     elastic_mix.search_1step_and_2steps = AsyncMock(return_value=[
         {"doc_id": "doc1", "chunk_id": "g1"},
     ])
-    elastic_mix.search_naive = AsyncMock(return_value=[
+    elastic_mix.search_doc = AsyncMock(return_value=[
         {"doc_id": "doc2", "chunk_id": "d1"},
     ])
     elastic_mix.search_neighbour_chunks = AsyncMock(return_value=[
@@ -268,7 +268,7 @@ async def test_search_ops_routes_to_all_operation_types(elastic_mix_with_mocks):
 
     ops = [
         {"type": "search_general", "query_list": ["q1"]},
-        {"type": "search_doc", "query": "q2"},
+        {"type": "search_doc", "query_list": ["q2"], "doc_id": "doc3"},
         {"type": "search_neighbour_chunks", "doc_id": "doc3", "chunk_id": "n1"},
     ]
 
@@ -282,7 +282,7 @@ async def test_search_ops_routes_to_all_operation_types(elastic_mix_with_mocks):
 
     # All three operations should have been called once
     assert elastic_mix.search_1step_and_2steps.await_count == 1
-    assert elastic_mix.search_naive.await_count == 1
+    assert elastic_mix.search_doc.await_count == 1
     assert elastic_mix.search_neighbour_chunks.await_count == 1
     # And results should be merged in order
     assert {r["chunk_id"] for r in results} == {"g1", "d1", "n1"}
