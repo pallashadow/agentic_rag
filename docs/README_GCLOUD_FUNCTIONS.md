@@ -7,10 +7,12 @@ Deploy to Cloud Functions (2nd gen) using `main.py` which contains the FastAPI a
 1. Google Cloud Project with billing enabled
 2. Cloud Functions API enabled
 3. Google Cloud SDK (`gcloud`) installed and authenticated
+4. Poetry installed (dependency management for this repo)
 
 ```bash
 gcloud auth login
 gcloud config set project YOUR_PROJECT_ID
+poetry install
 ```
 
 ## Deploy
@@ -26,6 +28,7 @@ bash deploy/deploy.sh
 - The same deployment command can be used for both initial deployment and updates
 - Only changed configurations will be updated (code changes, environment variables, etc.)
 - The function URL remains the same after updates
+- Dependencies are managed via `pyproject.toml` + `poetry.lock` (no `requirements.txt` in this project)
 
 
 ### Environment Variables

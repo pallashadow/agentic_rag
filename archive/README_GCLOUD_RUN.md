@@ -124,4 +124,5 @@ gcloud run services logs read your-function-name --region us-central1
 - Application listens on `0.0.0.0` to accept connections
 - Ensure Elasticsearch is accessible from Cloud Run (consider VPC connector for private IPs)
 - Use Secret Manager for sensitive credentials in production
+- Python dependencies are defined in `pyproject.toml` + `poetry.lock` (no `requirements.txt` workflow)
 

@@ -9,16 +9,16 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy requirements first for better caching
-COPY requirements.txt .
+# Copy dependency metadata first for better caching
+COPY pyproject.toml README.md ./
+COPY lib/ ./lib/
 
-# Install Python dependencies
-RUN pip install --no-cache-dir -r requirements.txt
+# Install Python dependencies from pyproject.toml
+RUN pip install --no-cache-dir .
 
 # Copy application code
 COPY server.py .
 COPY prompt.json .
-COPY lib/ ./lib/
 
 # Cloud Run: pass config via env vars / Secret Manager, don't bake local .env into the image.
 

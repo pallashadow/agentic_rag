@@ -119,3 +119,4 @@ terraform {
 - Never commit `terraform.tfvars` or `.tfstate` files
 - Use Secret Manager for production (secrets not in state)
 - Review `terraform plan` before applying
+- Application dependencies are managed by `pyproject.toml` + `poetry.lock` (no `requirements.txt`)

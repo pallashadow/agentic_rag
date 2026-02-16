@@ -82,6 +82,7 @@ Key behavior in `deploy/deploy.sh`:
 - Load and export variables from `.env`
 - Build `--set-env-vars` and run `gcloud functions deploy`
 - If `CORS_ALLOW_ORIGINS` is empty, default to `https://pallashadow.github.io` to reduce frontend CORS failures
+- Backend dependency source is `pyproject.toml` + `poetry.lock`; this repo does not maintain `requirements.txt`
 
 ## 5. Required GitHub Secrets
 

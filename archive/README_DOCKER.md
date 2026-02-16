@@ -89,4 +89,5 @@ Set these in Cloud Run console or via gcloud:
 - Cloud Run automatically sets the `PORT` environment variable
 - The application listens on `0.0.0.0` to accept connections from Cloud Run
 - Make sure your Elasticsearch instance is accessible from Cloud Run's network
+- Python dependencies come from `pyproject.toml` (this archived path also does not require `requirements.txt`)
 

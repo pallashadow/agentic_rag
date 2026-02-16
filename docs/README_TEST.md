@@ -7,7 +7,7 @@ Unit tests for this project. All external dependencies (Elasticsearch, LiteLLM A
 Install test dependencies:
 
 ```bash
-pip install -r requirements-test.txt
+pip install .[test]
 ```
 
 ## Running Tests

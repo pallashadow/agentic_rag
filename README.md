@@ -10,7 +10,7 @@ frontend: https://pallashadow.github.io/agentic_rag/agentic.html
 
 ## Installation
 
-1. Install Python libraries: `pip install -r requirements.txt`
+1. Install Python dependencies with Poetry: `poetry install`
 2. Set up API keys:
    - Copy `env.example` to `.env`
    - Add your API keys:
@@ -20,6 +20,8 @@ frontend: https://pallashadow.github.io/agentic_rag/agentic.html
      - `ELASTIC_API_KEY`: Elasticsearch API key
 3. Set up Elasticsearch: The project uses Elasticsearch Serverless for document indexing and search
 4. Prepare data: Run one of the notebooks in `scripts/` (e.g. `scripts/data_prepare_*.ipynb`) to download and process the data
+
+Dependency management note: this project uses `pyproject.toml` + `poetry.lock`. `requirements.txt` is not maintained.
 
 ## Usage
 
@@ -73,7 +75,6 @@ The project includes `main.py` which contains the FastAPI app for Cloud Function
 
 ## Documentation
 
-- [docs/README_zh.md](docs/README_zh.md) - 中文文档 (Chinese documentation)
 - [docs/README_RAG.md](docs/README_RAG.md) - RAG algorithm, workflow, and design decisions
 - [docs/README_AGENTIC.md](docs/README_AGENTIC.md) - Agentic RAG Pipeline documentation (LangGraph-based workflow)
 - [docs/README_API.md](docs/README_API.md) - API endpoints and usage
@@ -105,8 +106,7 @@ Note: browser calls require CORS. This repo enables CORS via FastAPI `CORSMiddle
 ```
 project_root/
   main.py                      # FastAPI app entry point (also used for Cloud Functions)
-  requirements.txt             # Runtime dependencies
-  requirements-dev.txt         # Dev dependencies
+  pyproject.toml               # Python dependencies and project metadata
   env.example                  # Environment variables template
   LICENSE
 
@@ -134,7 +134,6 @@ project_root/
     README_DATA.md
     README_TEST.md
     README_GCLOUD_FUNCTIONS.md
-    README_zh.md
 
   frontend/                    # Static frontend (GitHub Pages)
     rag.html                   # Traditional RAG UI
