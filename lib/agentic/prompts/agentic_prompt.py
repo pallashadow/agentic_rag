@@ -44,13 +44,13 @@ def get_agentic_prompt_and_format(
                         "query_list": {
                             "type": "array",
                             "items": {"type": "string"},
-                            "description": "Required for search_general type",
+                            "description": "Required for search_general and search_doc types",
                             "minItems": 1,
                             "maxItems": 3
                         },
                         "doc_id": {
                             "type": "string",
-                            "description": "Required for search_neighbour_chunks type"
+                            "description": "Required for search_doc and search_neighbour_chunks types"
                         },
                         "chunk_id": {
                             "type": "string",

@@ -153,3 +153,54 @@ async def call_llm_stream_with_fallback(str1,
         except Exception as fallback_error:
             logging.error(f"Both models failed: {fallback_error}")
             raise
+
+async def call_llm_with_tools(
+    prompt: str,
+    tools: list[dict],
+    model_name: str = "gpt",
+    tool_choice: str = "auto"
+) -> dict:
+    """
+    Call LLM with function calling support via LiteLLM.
+    
+    Args:
+        prompt: User prompt
+        tools: List of tool definitions in OpenAI format
+        model_name: Model identifier for LiteLLM router
+        tool_choice: "auto", "required", or "none"
+    
+    Returns:
+        dict: Contains 'content' and 'tool_calls' (if any)
+    """
+    router = get_litellm_fallback_router()
+    
+    messages = [{"role": "user", "content": prompt}]
+    
+    # LiteLLM automatically handles tools parameter
+    response = await router.acompletion(
+        model=model_name,
+        messages=messages,
+        tools=tools,
+        tool_choice=tool_choice,
+        temperature=0.0
+    )
+    
+    message = response.choices[0].message
+    
+    # Extract function calls if present
+    result = {
+        "content": message.content or "",
+        "tool_calls": []
+    }
+    
+    if hasattr(message, "tool_calls") and message.tool_calls:
+        for tool_call in message.tool_calls:
+            result["tool_calls"].append({
+                "id": tool_call.id,
+                "function": {
+                    "name": tool_call.function.name,
+                    "arguments": tool_call.function.arguments
+                }
+            })
+    
+    return result

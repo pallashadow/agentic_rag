@@ -171,14 +171,122 @@ def mock_elastic_mix():
 
 
 @pytest.fixture
-def workflow_with_mocks(mock_call_llm_with_fallback, mock_elastic_mix):
+def mock_call_llm_with_tools():
+    """
+    Mock implementation of call_llm_with_tools for function calling.
+    Returns function call responses based on prompt content.
+    
+    Motivation: simulate function calling responses without calling actual LLM APIs.
+    """
+    async def _mock_tools(prompt, tools, model_name, tool_choice):
+        prompt_lower = prompt.lower()
+        
+        # Entry node: classify_query tool
+        if any("classify_query" in str(tool) for tool in tools):
+            # Extract question from prompt
+            question = ""
+            if "用户问题：" in prompt:
+                question = prompt.split("用户问题：")[1].split("\n")[0].strip()
+            question_lower = question.lower()
+            
+            import json
+            if any(word in question_lower for word in ["hello", "hi", "hey", "greetings"]) or "how are you" in question_lower:
+                return {
+                    "content": "",
+                    "tool_calls": [{
+                        "id": "call_entry_1",
+                        "function": {
+                            "name": "classify_query",
+                            "arguments": json.dumps({
+                                "query_type": "greeting",
+                                "expanded_queries": [question] if question else [],
+                                "answer": "Hello! How can I help you today?"
+                            })
+                        }
+                    }]
+                }
+            elif any(word in question_lower for word in ["stupid", "idiot", "dumb", "hate"]):
+                return {
+                    "content": "",
+                    "tool_calls": [{
+                        "id": "call_entry_2",
+                        "function": {
+                            "name": "classify_query",
+                            "arguments": json.dumps({
+                                "query_type": "insult",
+                                "expanded_queries": [question] if question else [],
+                                "answer": "I'm here to help in a respectful manner. How can I assist you?"
+                            })
+                        }
+                    }]
+                }
+            elif "??" in question_lower or "i'm confused" in question_lower or "i am confused" in question_lower:
+                return {
+                    "content": "",
+                    "tool_calls": [{
+                        "id": "call_entry_3",
+                        "function": {
+                            "name": "classify_query",
+                            "arguments": json.dumps({
+                                "query_type": "unclear",
+                                "expanded_queries": [question] if question else [],
+                                "answer": "I'm not sure what you're asking. Could you please clarify your question?"
+                            })
+                        }
+                    }]
+                }
+            else:
+                # Default to need_rag
+                return {
+                    "content": "",
+                    "tool_calls": [{
+                        "id": "call_entry_4",
+                        "function": {
+                            "name": "classify_query",
+                            "arguments": json.dumps({
+                                "query_type": "need_rag",
+                                "expanded_queries": [question] if question else ["What is the capital of France?"],
+                                "answer": ""
+                            })
+                        }
+                    }]
+                }
+        
+        # Validation node: validate_and_refine tool
+        elif any("validate_and_refine" in str(tool) for tool in tools):
+            import json
+            return {
+                "content": "",
+                "tool_calls": [{
+                    "id": "call_validation_1",
+                    "function": {
+                        "name": "validate_and_refine",
+                        "arguments": json.dumps({
+                            "type_state": "valid_answer",
+                            "search_ops": [],
+                            "valid_search_indices": []
+                        })
+                    }
+                }]
+            }
+        
+        # Default: no tool calls
+        return {"content": "", "tool_calls": []}
+    
+    return _mock_tools
+
+
+@pytest.fixture
+def workflow_with_mocks(mock_call_llm_with_fallback, mock_call_llm_with_tools, mock_elastic_mix):
     """
     Build a workflow with all external dependencies mocked.
     
     Motivation: avoid repeating the same patch boilerplate in every test.
     """
-    with patch("lib.agentic.nodes.entry_llm_node.call_llm_with_fallback", side_effect=mock_call_llm_with_fallback), \
+    with patch("lib.agentic.nodes.entry_llm_node.call_llm_with_tools", side_effect=mock_call_llm_with_tools), \
+         patch("lib.agentic.nodes.entry_llm_node.call_llm_with_fallback", side_effect=mock_call_llm_with_fallback), \
          patch("lib.agentic.nodes.rag_reply_node.call_llm_with_fallback", side_effect=mock_call_llm_with_fallback), \
+         patch("lib.agentic.nodes.reply_validation_node.call_llm_with_tools", side_effect=mock_call_llm_with_tools), \
          patch("lib.agentic.nodes.reply_validation_node.call_llm_with_fallback", side_effect=mock_call_llm_with_fallback), \
          patch("lib.agentic.node.ElasticMix", new=mock_elastic_mix):
         graph = AgenticGraph()

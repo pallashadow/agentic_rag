@@ -1,6 +1,6 @@
 import os
 import re
-from langchain_text_splitters import RecursiveCharacterTextSplitter
+import tiktoken
 from tqdm import tqdm
 
 class NaiveChunker:
@@ -9,13 +9,16 @@ class NaiveChunker:
                  output_dir="./data_miles/chunks/", 
                  chunk_size=500,
                  chunk_overlap=100,
-                 reload=False
+                 reload=False,
+                 encoding="cl100k_base"
                  ):
         self.input_dir = input_dir
         self.output_dir = output_dir
         self.chunk_size = chunk_size
         self.chunk_overlap = chunk_overlap
         self.reload = reload
+        # Initialize tiktoken encoder for token-based chunking
+        self.encoding = tiktoken.get_encoding(encoding)
 
     def run(self):
         """Process all files in input_dir and save chunks to output_dir"""
@@ -52,9 +55,11 @@ class NaiveChunker:
                 print(f"Error processing {file_path}: {e}")
 
     def load_data_to_paragraphs(self, file1):
-        """Split long document into short documents within 1000 characters. 
+        """Split long document into short documents using token-based chunking.
         Because OpenAI sentence embedding ada-002 has 8000 input tokens, maximum 2000 Chinese characters.
         However, semantic encoding effectiveness decreases when approaching 2000 characters.
+        
+        Uses tiktoken for token-based splitting, which provides better control over LLM token limits.
         """
         with open(file1, "r", encoding="utf-8") as f:
             data = f.read()
@@ -62,9 +67,60 @@ class NaiveChunker:
         pattern2 = r' 友情链接：Gnews \| Gclubs \| Gfashion \| himalaya exchange \| gettr \| 法治基金 \| 新中国联邦辞典 \| $'
         data = re.sub(pattern1, "", data)
         data = re.sub(pattern2, "", data)
-        text_splitter = RecursiveCharacterTextSplitter(
-            chunk_size=self.chunk_size, 
-            chunk_overlap=self.chunk_overlap
-        )
-        txts = text_splitter.split_text(data)
+        
+        # Convert character-based sizes to approximate token counts
+        # For Chinese text, roughly 1.5-2 characters per token
+        # We'll encode a sample to estimate, then use token-based chunking
+        sample_tokens = self.encoding.encode(data[:min(1000, len(data))])
+        if len(sample_tokens) > 0:
+            chars_per_token = min(1000, len(data)) / len(sample_tokens)
+            max_tokens = int(self.chunk_size / chars_per_token)
+            overlap_tokens = int(self.chunk_overlap / chars_per_token)
+        else:
+            # Fallback if encoding fails
+            max_tokens = self.chunk_size // 2
+            overlap_tokens = self.chunk_overlap // 2
+        
+        # Ensure minimum values
+        max_tokens = max(50, max_tokens)
+        overlap_tokens = max(0, min(overlap_tokens, max_tokens // 2))
+        
+        # Token-based chunking with overlap
+        txts = self._chunk_by_tokens(data, max_tokens, overlap_tokens)
         return txts
+    
+    def _chunk_by_tokens(self, text: str, max_tokens: int, overlap_tokens: int) -> list[str]:
+        """Split text into chunks based on token count with overlap support.
+        
+        Args:
+            text: Text to split
+            max_tokens: Maximum tokens per chunk
+            overlap_tokens: Number of tokens to overlap between chunks
+        
+        Returns:
+            List of text chunks
+        """
+        # Encode the entire text into tokens
+        tokens = self.encoding.encode(text)
+        
+        if len(tokens) <= max_tokens:
+            return [text]
+        
+        chunks = []
+        start_idx = 0
+        
+        while start_idx < len(tokens):
+            # Get tokens for this chunk
+            end_idx = min(start_idx + max_tokens, len(tokens))
+            chunk_tokens = tokens[start_idx:end_idx]
+            
+            # Decode tokens back to text
+            chunk_text = self.encoding.decode(chunk_tokens)
+            chunks.append(chunk_text)
+            
+            # Move start index forward, accounting for overlap
+            if end_idx >= len(tokens):
+                break
+            start_idx = end_idx - overlap_tokens
+        
+        return chunks

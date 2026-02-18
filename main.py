@@ -12,6 +12,7 @@ from lib.agentic.streaming import agentic_rag_stream
 from lib.app_logger import get_logger, setup_logging
 from lib.security import setup_cors, require_auth, require_rate_limit, global_exception_handler
 from lib.agentic.config import get_agent_state_default
+from lib.mcp import SearchService, SearchMCPServer
 
 app = FastAPI()
 load_dotenv()
@@ -19,6 +20,12 @@ setup_logging()
 logger = get_logger(__name__)
 rag_base = RAGBase()
 agentic_base = AgenticGraph().build_workflow().compile()
+
+# Initialize MCP services (external interface)
+# Share the same ElasticMix instance with internal workflow
+search_service = SearchService(rag_base.elastic_mix)
+mcp_server = SearchMCPServer(search_service)
+logger.info("MCP services initialized - SearchService and SearchMCPServer ready")
 
 
 setup_cors(app)
@@ -98,11 +105,9 @@ async def search(
     _: None = Depends(require_auth),
     __: None = Depends(require_rate_limit),
 ):
-    title_index =  f"{chunk_index}_titles"
     try:
         search_results, expanded_query = await rag_base.search(
             txt_query, 
-            title_index,
             chunk_index,
             title_k=title_k, 
             chunk_k=chunk_k, 
@@ -127,14 +132,11 @@ async def chatbot(
     __: None = Depends(require_rate_limit),
 ):
     state1 = get_agent_state_default()
-    agentic_base
-    title_index =  f"{chunk_index}_titles"
     try:
         # Limit query_context to maximum 6 items
         query_context = query_context[-4:]
         result = await rag_base.chat(
             txt_query, 
-            title_index,
             chunk_index,
             query_context=query_context,
             title_k=title_k, 
@@ -160,12 +162,10 @@ async def chatbot_stream(
     __: None = Depends(require_rate_limit),
 ):
     """Stream chatbot response using Server-Sent Events (SSE)."""
-    title_index = f"{chunk_index}_titles"
     query_context_limited = query_context[-4:] if query_context else []
     
     stream = rag_base.chat_stream(
         txt_query,
-        title_index,
         chunk_index,
         query_context=query_context_limited,
         title_k=title_k,
@@ -247,6 +247,40 @@ async def agentic_rag_stream_endpoint(
         media_type="text/event-stream",
         headers=SSE_HEADERS,
     )
+
+@app.get("/mcp/search")
+async def mcp_search(
+    query: str,
+    chunk_index: str = "miles_guo",
+    top_k: int = 10,
+    title_k: int = 3,
+    _: None = Depends(require_auth),
+    __: None = Depends(require_rate_limit),
+):
+    """
+    MCP search endpoint - standardized interface for external tools.
+    
+    This endpoint uses the MCP SearchService which provides a clean abstraction
+    over Elasticsearch indices. It coexists with the internal workflow that
+    uses ElasticMix directly. The title_index is automatically derived from chunk_index.
+    """
+    from lib.mcp import SearchRequest
+    try:
+        request = SearchRequest(
+            query=query,
+            chunk_index=chunk_index,
+            top_k=top_k,
+            title_k=title_k,
+        )
+        results = await search_service.search(request)
+        # Convert Pydantic models to dict for JSON serialization
+        return {
+            "results": [result.model_dump() for result in results],
+            "count": len(results),
+        }
+    except Exception as e:
+        logger.error("Error in mcp_search: %s", e, exc_info=True, extra={"query": query, "chunk_index": chunk_index})
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 # Start server when run directly or in Cloud Functions 2nd gen

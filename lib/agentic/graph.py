@@ -16,8 +16,8 @@ class AgenticGraph:
             node: Node instance (optional, creates default if not provided)
             edge: Edge instance (optional, creates default if not provided)
         """
-        from lib.agentic.node import Node as NodeClass
-        from lib.agentic.edge import Edge as EdgeClass
+        from lib.agentic.utils.node import Node as NodeClass
+        from lib.agentic.utils.edge import Edge as EdgeClass
         
         self.node = node if node is not None else NodeClass()
         self.edge = edge if edge is not None else EdgeClass()

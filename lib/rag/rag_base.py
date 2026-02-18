@@ -4,6 +4,7 @@ import textwrap
 import asyncio
 
 from lib.search.elastic_mix import ElasticMix
+from lib.mcp import SearchService, GeneralSearchRequest, NaiveSearchRequest
 from lib.rag.query_expand import QueryExpander
 from lib.rag.rag_prompt import build_rag_prompt, PROMPT_BASE
 from lib.llm.litellm_api import call_llm_with_fallback, call_llm_stream_with_fallback
@@ -13,7 +14,9 @@ logger = get_logger(__name__)
 
 class RAGBase:
     def __init__(self):
+        # Initialize ElasticMix only for MCP layer - not used directly
         self.elastic_mix = ElasticMix()
+        self.search_service = SearchService(self.elastic_mix)
         self.prompt_base = PROMPT_BASE
         self.prompt_before = self.prompt_base["prompt1"]
         self.prompt_after = self.prompt_base["prompt2"]
@@ -23,7 +26,6 @@ class RAGBase:
         
     
     async def search(self, query:str, 
-                     title_index:str,
                      chunk_index:str,
                      query_context:list[str]=[], 
                      title_k:int=3, 
@@ -46,19 +48,55 @@ class RAGBase:
             query_list += expanded_query
             chunk_k = chunk_k // 2
         
-        search_results = await self.elastic_mix.search(
-            query_list, 
-            title_index, 
-            chunk_index, 
-            title_k=title_k, 
-            chunk_k=chunk_k
+        # Use MCP layer instead of direct elastic_mix call
+        # title_index is automatically derived from chunk_index in MCP layer
+        mcp_request = GeneralSearchRequest(
+            query_list=query_list,
+            chunk_index=chunk_index,
+            top_k=chunk_k,
+            title_k=title_k
         )
+        doc_results = await self.search_service.general_search(mcp_request)
+        
+        # Convert DocumentResult to dict format for compatibility
+        search_results = [
+            {
+                "doc_id": r.doc_id,
+                "chunk_id": r.chunk_id,
+                "text": r.text,
+                "doc_title": r.doc_title,
+                "score": r.score,
+                "index": r.index
+            }
+            for r in doc_results
+        ]
         
         return search_results, expanded_query
     
+    async def search_naive(self, query: str, chunk_index: str, chunk_k: int = 10) -> list[dict]:
+        """Naive search - direct chunk search without title filtering or query expansion."""
+        # Use MCP layer instead of direct elastic_mix call
+        mcp_request = NaiveSearchRequest(
+            query=query,
+            chunk_index=chunk_index,
+            top_k=chunk_k
+        )
+        doc_results = await self.search_service.naive_search(mcp_request)
+        
+        # Convert DocumentResult to dict format for compatibility
+        return [
+            {
+                "doc_id": r.doc_id,
+                "chunk_id": r.chunk_id,
+                "text": r.text,
+                "doc_title": r.doc_title,
+                "score": r.score,
+                "index": r.index
+            }
+            for r in doc_results
+        ]
     
     async def chat(self, query:str, 
-                   title_index:str,
                    chunk_index:str,
                    query_context:list[str]=[], 
                    title_k:int=3, 
@@ -70,7 +108,6 @@ class RAGBase:
         # step 1: search
         search_results, expanded_queries = await self.search(
             query, 
-            title_index,
             chunk_index,
             query_context, 
             title_k=title_k, 
@@ -104,7 +141,6 @@ class RAGBase:
         return result
     
     async def chat_stream(self, query:str, 
-                         title_index:str,
                          chunk_index:str,
                          query_context:list[str]=[], 
                          title_k:int=3, 
@@ -124,7 +160,6 @@ class RAGBase:
         # step 1: search (don't yield results, they're too large)
         search_results, expanded_queries = await self.search(
             query, 
-            title_index,
             chunk_index,
             query_context, 
             title_k=title_k, 
