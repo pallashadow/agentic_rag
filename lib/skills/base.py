@@ -8,6 +8,7 @@ from abc import ABC, abstractmethod
 from pydantic import BaseModel
 from typing import Type, Any
 import json
+from lib.agentic.config import AgentState
 
 
 class SkillInput(BaseModel):
@@ -67,7 +68,7 @@ class BaseSkill(ABC):
         }
     
     @abstractmethod
-    async def execute(self, input_data: SkillInput) -> SkillOutput:
+    async def execute(self, input_data: SkillInput, state: AgentState | None = None) -> SkillOutput:
         """Execute the skill with validated input."""
         ...
 

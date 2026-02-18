@@ -5,7 +5,7 @@ from pydantic import BaseModel, Field
 from lib.mcp.search_server import SearchMCPServer
 from lib.mcp.search_service import GeneralSearchRequest
 from lib.skills.base import BaseSkill, SkillInput, SkillOutput
-from typing import Literal
+from lib.agentic.config import AgentState
 
 
 class GeneralSearchInput(SkillInput):
@@ -16,21 +16,11 @@ class GeneralSearchInput(SkillInput):
         min_length=1,
         max_length=5
     )
-    chunk_index: str = Field(
-        ...,
-        description="Elasticsearch index name for document chunks (title index is derived automatically)"
-    )
     top_k: int = Field(
         default=5,
         description="Number of top results to return",
         ge=1,
         le=20
-    )
-    title_k: int = Field(
-        default=3,
-        description="Number of title results to retrieve (internal parameter)",
-        ge=1,
-        le=10
     )
 
 
@@ -67,14 +57,25 @@ class GeneralSearchSkill(BaseSkill):
     def __init__(self, mcp_server: SearchMCPServer):
         self.mcp_server = mcp_server
     
-    async def execute(self, input_data: GeneralSearchInput) -> GeneralSearchOutput:
+    async def execute(
+        self,
+        input_data: GeneralSearchInput,
+        state: AgentState | None = None,
+    ) -> GeneralSearchOutput:
         """Execute general search with validated input via MCP."""
+        if state is None:
+            raise ValueError("state is required to inherit chunk_index and title_k")
+
+        search_config = state.get("search_config", {})
+        chunk_index = search_config.get("chunk_index", "miles_guo")
+        title_k = search_config.get("title_k", 3)
+
         # Create MCP request - title_index is derived from chunk_index in MCP layer
         mcp_request = GeneralSearchRequest(
             query_list=input_data.query_list,
-            chunk_index=input_data.chunk_index,
+            chunk_index=chunk_index,
             top_k=input_data.top_k,
-            title_k=input_data.title_k
+            title_k=title_k
         )
         
         # Call MCP server

@@ -104,13 +104,24 @@ async def entry_llm_node(state: AgentState) -> AgentState:
     
     # Update state based on classification
     if query_type == "need_rag":
-        # For RAG queries: empty answer triggers RAG flow, use LLM-generated expanded queries
+        # For RAG queries: empty answer triggers RAG flow.
+        # Generate skill-native planned calls directly so rag_search_node can execute without legacy conversion.
         expanded_queries = [question] + expanded_queries
+        planned_skill_calls = [
+            {
+                "id": "entry_general_0",
+                "function": {
+                    "name": "general_search",
+                    "arguments": json.dumps({"query_list": expanded_queries}, ensure_ascii=False),
+                },
+            }
+        ]
         search_ops = [{"type": "search_general", "query_list": expanded_queries}]
         return {
             **state,
             "query_type": query_type,
             "answer": "",
+            "planned_skill_calls": planned_skill_calls,
             "search_ops": search_ops,
         }
     else:
@@ -119,6 +130,7 @@ async def entry_llm_node(state: AgentState) -> AgentState:
             **state,
             "query_type": query_type,
             "answer": answer,
+            "planned_skill_calls": [],
             "search_ops": None,
         }
 

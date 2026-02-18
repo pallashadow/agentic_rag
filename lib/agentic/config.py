@@ -1,4 +1,4 @@
-from typing import TypedDict, List
+from typing import TypedDict, List, Any
 
 class SearchConfig(TypedDict):
     title_index: str
@@ -16,8 +16,10 @@ class AgentState(TypedDict, total=False):
     query_context: List[str] # query context for RAG search
     answer: str # final answer
     query_type: str  # "greeting", "insult", "unclear", "need_rag"
-    historical_search_ops: List[str] # all search ops has been used
-    search_ops: List[str] # next search ops for RAG search
+    historical_search_ops: List[dict[str, Any]] # all search ops / skill calls that have been used
+    search_ops: List[dict[str, Any]] # legacy search ops for backward compatibility
+    planned_skill_calls: List[dict[str, Any]] # skill calls planned by reasoning node
+    skill_errors: List[dict[str, Any]] # non-fatal skill execution errors
     search_results: List[dict] # search_results for RAG answer
     search_count: int # turns of RAG search
     search_config: SearchConfig # search config
@@ -43,6 +45,8 @@ def get_agent_state_default(
         "query_type": "",
         "historical_search_ops": [],
         "search_ops": [],
+        "planned_skill_calls": [],
+        "skill_errors": [],
         "search_results": [],
         "search_count": 0,
         "search_config": {

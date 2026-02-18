@@ -170,9 +170,9 @@ Recommended next step for `SkillRegistry` (when moving toward planners):
 
 # lib/skills/general_search.py
 from pydantic import BaseModel, Field
-from lib.search.elastic_mix import ElasticMix
 from lib.agentic.config import AgentState
-from typing import Literal
+from lib.mcp.search_mcp_server import SearchMCPServer
+from lib.mcp.models import GeneralSearchRequest
 
 class GeneralSearchInput(BaseModel):
     """Input schema for general document search.
@@ -281,7 +281,6 @@ class DocumentSearchInput(BaseModel):
     query: str = Field(..., description="Search query")
     doc_id: str = Field(..., description="Document ID to search within")
     top_k: int = Field(default=5, ge=1, le=20)
-    collection: str = Field(default="default")
 
 class DocumentSearchOutput(BaseModel):
     """Output schema for document search."""
@@ -301,29 +300,49 @@ class DocumentSearchSkill(BaseSkill):
     input_model = DocumentSearchInput
     output_model = DocumentSearchOutput
     
-    def __init__(self, elastic_mix: ElasticMix):
-        self.elastic_mix = elastic_mix
+    def __init__(self, mcp_server: SearchMCPServer):
+        """Initialize with MCP server. MCP is only visible within skill implementation."""
+        self.mcp_server = mcp_server
     
-    async def execute(self, input_data: DocumentSearchInput) -> DocumentSearchOutput:
-        """Execute document-specific search."""
-        collection_map = {
-            "default": ("miles_guo_titles", "miles_guo"),
-        }
-        _, chunk_index = collection_map.get(
-            input_data.collection,
-            collection_map["default"]
-        )
+    async def execute(
+        self, 
+        input_data: DocumentSearchInput, 
+        state: AgentState = None
+    ) -> DocumentSearchOutput:
+        """Execute document-specific search via MCP.
         
-        raw_results = await self.elastic_mix.search_doc(
-            input_data.query,
-            input_data.doc_id,
+        Infrastructure parameters (chunk_index) are inherited from state,
+        not from LLM input. MCP calls are encapsulated within skill.
+        """
+        if state is None:
+            raise ValueError("state is required to inherit chunk_index")
+        
+        # Inherit infrastructure config from state
+        search_config = state.get("search_config", {})
+        chunk_index = search_config.get("chunk_index", "miles_guo")
+        
+        # Create MCP request - MCP is only called within skill
+        mcp_request = DocumentSearchRequest(
+            query=input_data.query,
+            doc_id=input_data.doc_id,
             chunk_index=chunk_index,
-            chunk_k=input_data.top_k
+            top_k=input_data.top_k
         )
         
+        # Call MCP server (MCP is invisible to Agent/Node layer)
+        mcp_results = await self.mcp_server.document_search(mcp_request)
+        
+        # Convert MCP DocumentResult to skill DocumentResult
         results = [
-            DocumentResult(**r, index=i)
-            for i, r in enumerate(raw_results)
+            DocumentResult(
+                doc_id=r.doc_id,
+                chunk_id=r.chunk_id,
+                text=r.text,
+                doc_title=r.doc_title,
+                score=r.score,
+                index=r.index
+            )
+            for r in mcp_results
         ]
         
         return DocumentSearchOutput(
@@ -356,11 +375,20 @@ class SkillRegistry:
         return list(self._skills.keys())
     
     def get_all_tool_schemas(self) -> List[dict]:
-        """Get all skills as OpenAI tool schemas for LLM function calling."""
+        """Get all skills as OpenAI tool schemas for LLM function calling.
+        
+        This is the primary interface for LangGraph nodes to access skill schemas.
+        Nodes should use this method to get tool schemas for function calling.
+        """
         return [skill.to_tool_schema() for skill in self._skills.values()]
     
     def get_all_mcp_tools(self) -> List[dict]:
-        """Get all skills as MCP tool specifications."""
+        """Get all skills as MCP tool specifications.
+        
+        Note: This is for internal/deployment use only. MCP should be invisible
+        to Agent/Node layer. Skills internally call MCP, but nodes should only
+        interact with skills via tool schemas and execute() method.
+        """
         return [skill.to_mcp_tool_spec() for skill in self._skills.values()]
     
     def get_skill_descriptions(self) -> Dict[str, str]:
@@ -377,7 +405,14 @@ async def rag_search_node_with_llm_selection(
     llm_client
 ) -> AgentState:
     """
-    Modern agent node where LLM selects and calls skills dynamically.
+    Modern LangGraph node where LLM selects and calls skills dynamically.
+    
+    Key Architecture:
+    1. Node gets skill schemas from SkillRegistry (not MCP directly)
+    2. Node passes schemas to LLM via function calling
+    3. LLM outputs JSON (skill name + parameters)
+    4. Node executes skill (skill internally calls MCP)
+    5. MCP is invisible to node - only skill knows about MCP
     
     This represents the shift from "pre-planned search_ops" to
     "LLM-driven capability selection".
@@ -385,11 +420,11 @@ async def rag_search_node_with_llm_selection(
     question = state["question"]
     context = state.get("context", {})
     
-    # Get available skills as tools
+    # Step 1: Node gets skill schemas from registry (MCP is not visible here)
     available_tools = skill_registry.get_all_tool_schemas()
     skill_descriptions = skill_registry.get_skill_descriptions()
     
-    # LLM selects which skill(s) to use based on question
+    # Step 2: LLM selects which skill(s) to use based on question
     prompt = f"""
     User question: {question}
     Context: {context}
@@ -400,55 +435,32 @@ async def rag_search_node_with_llm_selection(
     Select and call the appropriate search skill(s) to answer the question.
     """
     
-    # Call LLM with tool calling
+    # Step 3: Call LLM with function calling (using skill schemas)
     response = await llm_client.call_with_tools(
         prompt,
         tools=available_tools,
         tool_choice="auto"
     )
     
-    # Execute selected skills
+    # Step 4: Execute selected skills (skill internally calls MCP)
     results = []
     if response.get("tool_calls"):
         for tool_call in response["tool_calls"]:
+            # Step 4a: Parse LLM output JSON (skill name + parameters)
             skill_name = tool_call["function"]["name"]
             skill = skill_registry.get(skill_name)
             
-            # Parse and validate input
+            # Step 4b: Validate input using skill's input model
             input_data = skill.input_model.model_validate_json(
                 tool_call["function"]["arguments"]
             )
             
-            # Execute skill
-            output = await skill.execute(input_data)
+            # Step 4c: Execute skill (MCP call happens inside skill.execute())
+            output = await skill.execute(input_data, state=state)
             results.append(output.model_dump())
     
     return {**state, "search_results": results}
 
-# Alternative: Traditional search_ops-based approach (backward compatible)
-async def rag_search_node_with_skills(
-    state: AgentState,
-    skill_registry: SkillRegistry
-) -> AgentState:
-    """
-    Execute pre-planned search operations using skills.
-    This maintains backward compatibility with existing search_ops structure.
-    """
-    search_ops = state.get("search_ops", [])
-    results = []
-    
-    for op in search_ops:
-        skill_name = op["type"]
-        skill = skill_registry.get(skill_name)
-        
-        # Validate input using skill's input model
-        input_data = skill.input_model.model_validate(op)
-        
-        # Execute skill
-        output = await skill.execute(input_data)
-        results.append(output.model_dump())
-    
-    return {**state, "search_results": results}
 ```
 
 ## Key Features of Modern Agent Skills
@@ -457,8 +469,8 @@ async def rag_search_node_with_skills(
 |---------|---------------|
 | **Structured Input Schema** | ✅ Pydantic models with validation |
 | **Structured Output Schema** | ✅ Pydantic models for type safety |
-| **Tool Schema Export** | ✅ `to_tool_schema()` for OpenAI function calling |
-| **MCP Tool Export** | ✅ `to_mcp_tool_spec()` for MCP integration |
+| **Tool Schema Export** | ✅ `to_tool_schema()` for OpenAI function calling (used by LangGraph nodes) |
+| **MCP Encapsulation** | ✅ Skills internally call MCP, invisible to Agent/Node layer |
 | **LLM-Readable Descriptions** | ✅ Rich descriptions for capability understanding |
 | **Dynamic Skill Selection** | ✅ LLM can select skills based on context |
 | **Composable Reasoning Units** | ✅ Skills are cognitive capabilities, not just functions |
@@ -467,8 +479,8 @@ async def rag_search_node_with_skills(
 
 - **Agent-native**: Skills are visible to LLMs as capabilities, not just internal functions
 - **Type-safe**: Pydantic models ensure correct inputs/outputs
-- **LLM-callable**: Can be directly used in function calling workflows
-- **MCP-compatible**: Can be exported as standardized MCP tools
+- **LLM-callable**: LangGraph nodes get schemas from registry and use function calling
+- **MCP-encapsulated**: MCP is only visible within skills, not exposed to nodes
 - **Planner-friendly**: LLMs can reason about which skills to use
 - **Extensible**: Easy to add new skills with clear boundaries
 - **Testable**: Structured inputs/outputs make testing straightforward
@@ -479,20 +491,55 @@ async def rag_search_node_with_skills(
 Old: Pre-planned search_ops → Execute functions
      (Strategy Pattern - internal implementation detail)
 
-New: LLM reasoning → Select skills → Execute skills → Observe → Reason again
-     (Cognitive Capability Layer - agent-visible abilities)
+New: LangGraph Node → Get skill schemas from registry → Function calling → 
+     LLM outputs JSON (skill + params) → Node executes skill → 
+     Skill internally calls MCP → Observe → Reason again
+     (Cognitive Capability Layer - agent-visible abilities, MCP encapsulated)
+```
+
+## LangGraph Node Contract
+
+All LangGraph nodes should use one contract:
+
+1. Get skill schemas from `skill_registry.get_all_tool_schemas()`
+2. Pass schemas to `llm_client.call_with_tools(...)`
+3. Read `tool_calls` JSON (`function.name` + `function.arguments`)
+4. Validate via `skill.input_model.model_validate_json(...)`
+5. Execute via `skill.execute(input_data, state=state)`
+
+Node layer only talks to `SkillRegistry` and skill models. MCP stays inside skill implementations.
+
+### Node Migration Checklist
+
+- Replace direct `mcp_server` / `elastic_mix` dependencies with `skill_registry`
+- Use function calling with registry-exported schemas
+- Persist planned calls (`planned_skill_calls`) in reasoning nodes
+- Execute skills in dedicated execution nodes
+- Always pass `state=state` into `skill.execute(...)`
+
+### Minimal Node Pattern
+
+```python
+async def some_reasoning_node(state: AgentState, skill_registry: SkillRegistry, llm_client) -> AgentState:
+    tools = skill_registry.get_all_tool_schemas()
+    response = await llm_client.call_with_tools(
+        prompt=build_prompt(state),
+        tools=tools,
+        tool_choice="auto",
+    )
+    return {**state, "planned_skill_calls": response.get("tool_calls", [])}
 ```
 
 ## Integration Plan: Using Skills in reply_validation_node
 
 ### Current State
 
-Currently, `reply_validation_node` generates `search_ops` in a legacy format:
+Currently, `reply_validation_node` may generate `search_ops` in a transitional format:
 - `{"type": "search_general", "query_list": [...]}`
 - `{"type": "search_doc", "query": "...", "doc_id": "..."}`
 - `{"type": "search_neighbour_chunks", "doc_id": "...", "chunk_id": "...", "distance": ...}`
 
-These `search_ops` are then executed in `rag_search_node` using `SearchService` (MCP layer).
+These operations should be mapped into skill calls and executed in `rag_search_node` via skills (which internally call MCP).
 
 ### Migration Strategy
 
@@ -518,25 +565,42 @@ These `search_ops` are then executed in `rag_search_node` using `SearchService` 
 ```python
 async def reply_validation_node(
     state: AgentState,
-    skill_registry: SkillRegistry
+    skill_registry: SkillRegistry,
+    llm_client
 ) -> AgentState:
     """
-    Validate answer and (when needed) plan skill calls via tool calling.
-
+    LangGraph node: Validate answer and (when needed) plan skill calls via function calling.
+    
+    Architecture Flow:
+    1. Node gets skill schemas from SkillRegistry.get_all_tool_schemas()
+    2. Node passes schemas to LLM via function calling
+    3. LLM outputs JSON (skill name + parameters) in tool_calls
+    4. Node persists tool_calls to state (does NOT execute skills here)
+    5. Dedicated execution node will execute skills later
+    
     Important: do NOT execute skills here. Emit planned tool calls into state so a
     dedicated execution node can run them and feed observations back into the loop.
+    MCP is invisible to this node - it only sees skill schemas.
     """
-    # Get available skills as tools
+    # Step 1: Get skill schemas from registry (MCP is not visible)
     available_tools = skill_registry.get_all_tool_schemas()
     
     # Add validation tool (validate_and_refine)
     tools = [validation_tool] + available_tools
     
+    # Step 2: Call LLM with function calling
+    response = await llm_client.call_with_tools(
+        prompt=build_validation_prompt(state),
+        tools=tools,
+        tool_choice="auto"
+    )
+    
+    # Step 3: Extract LLM output JSON (skill name + parameters)
     # LLM can either:
     # 1. Call validate_and_refine with type_state="valid_answer"
     # 2. Call validate_and_refine with type_state="refine_query" AND call skills directly
     
-    # Persist planned skill calls for the next node (execution)
+    # Step 4: Persist planned skill calls for the next node (execution)
     planned_skill_calls = [
         tc for tc in response.get("tool_calls", [])
         if tc.get("function", {}).get("name") in skill_registry.list_available()
@@ -560,7 +624,7 @@ async def reply_validation_node(
 4. Add a dedicated `skill_execution_node` that consumes `planned_skill_calls` and executes them
 5. Store execution outputs as `observations` (or `search_results`) in state
 6. Route back to a reasoning node (e.g., `rag_reply_node` / planner node) to interpret observations
-7. Remove `search_ops` format once fully migrated
+7. Keep only skill-call planning format (`planned_skill_calls`) after migration
 
 **Skill Execution Node Example**:
 ```python
@@ -569,36 +633,72 @@ async def skill_execution_node(
     skill_registry: SkillRegistry
 ) -> AgentState:
     """
-    Execute planned skill calls from reply_validation_node.
+    LangGraph node: Execute planned skill calls from reply_validation_node.
     
-    Important: Pass state to skill.execute() so infrastructure parameters
-    (chunk_index, title_k) can be inherited from state["search_config"].
+    Architecture Flow:
+    1. Node reads planned_skill_calls from state (JSON: skill name + parameters)
+    2. Node gets skill from registry and validates input
+    3. Node calls skill.execute() - MCP is called internally by skill
+    4. Node collects results and updates state
+    
+    Important: 
+    - Pass state to skill.execute() so infrastructure parameters
+      (chunk_index, title_k) can be inherited from state["search_config"]
+    - MCP is invisible to this node - skill handles all MCP calls internally
     """
     planned_skill_calls = state.get("planned_skill_calls", [])
     search_results = []
     
     for tool_call in planned_skill_calls:
+        # Step 1: Get skill from registry (no MCP knowledge needed)
         skill_name = tool_call["function"]["name"]
         skill = skill_registry.get(skill_name)
         
-        # Parse and validate input (only semantic parameters, no chunk_index)
+        # Step 2: Parse and validate input (only semantic parameters, no chunk_index)
         input_data = skill.input_model.model_validate_json(
             tool_call["function"]["arguments"]
         )
         
-        # Execute skill with state for infrastructure inheritance
+        # Step 3: Execute skill (MCP call happens inside skill.execute())
         output = await skill.execute(input_data, state=state)
         search_results.append(output.model_dump())
     
     return {**state, "search_results": search_results}
 ```
 
-### Backward Compatibility
+### Failure Handling Contract
 
-During transition:
-- Keep `search_ops` in state for compatibility if needed
-- Gradually migrate nodes to skill-based approach
-- Remove legacy `search_ops` format after full migration
+To keep node behavior deterministic, define failure handling in state:
+
+- Unknown skill name:
+  - Append to `state["skill_errors"]` with `code="skill_not_found"`
+  - Skip that call and continue remaining calls
+- Invalid arguments (Pydantic validation error):
+  - Append to `state["skill_errors"]` with `code="invalid_arguments"`
+  - Keep original `arguments` for debugging
+- Skill runtime exception / timeout:
+  - Append to `state["skill_errors"]` with `code="skill_execution_failed"`
+  - Include `skill_name`, `message`, and optional `retryable` flag
+- No tool call from LLM:
+  - Set `state["planned_skill_calls"] = []`
+  - Let next reasoning/validation node decide whether to finish or re-plan
+
+Recommended state fields:
+
+```python
+{
+  "planned_skill_calls": [...],
+  "search_results": [...],
+  "skill_errors": [
+    {
+      "skill_name": "document_search",
+      "code": "invalid_arguments",
+      "message": "doc_id is required",
+      "arguments": "{...}"
+    }
+  ]
+}
+```
 
 ### Avoiding a "Super Node" (Preserving the Agent Loop)
 

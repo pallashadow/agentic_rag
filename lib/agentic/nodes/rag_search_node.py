@@ -1,12 +1,71 @@
+from __future__ import annotations
+
+import json
+from typing import Any
+
+from pydantic import ValidationError
+
 from lib.agentic.config import AgentState
-from lib.search.elastic_mix import ElasticMix
-from lib.mcp import SearchService, SearchRequest, DocumentSearchRequest, NeighbourSearchRequest
+from lib.skills.registry import SkillRegistry
 from lib.app_logger import get_logger
 
 logger = get_logger(__name__)
 
 
-async def rag_search_node(state: AgentState, elastic_mix: ElasticMix) -> AgentState:
+def _legacy_op_to_skill_calls(search_ops: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Convert legacy `search_ops` into skill-like tool calls."""
+    planned_calls: list[dict[str, Any]] = []
+
+    for op in search_ops:
+        search_type = op.get("type")
+        if search_type == "search_general":
+            args = {
+                "query_list": op.get("query_list", []),
+            }
+            if "top_k" in op:
+                args["top_k"] = op["top_k"]
+            planned_calls.append(
+                {
+                    "id": f"legacy_general_{len(planned_calls)}",
+                    "function": {"name": "general_search", "arguments": json.dumps(args, ensure_ascii=False)},
+                }
+            )
+        elif search_type == "search_doc":
+            doc_id = op.get("doc_id")
+            query_list = op.get("query_list", [])
+            if not doc_id or not query_list:
+                continue
+            for query in query_list:
+                args = {"query": query, "doc_id": doc_id}
+                if "top_k" in op:
+                    args["top_k"] = op["top_k"]
+                planned_calls.append(
+                    {
+                        "id": f"legacy_doc_{len(planned_calls)}",
+                        "function": {"name": "document_search", "arguments": json.dumps(args, ensure_ascii=False)},
+                    }
+                )
+        elif search_type == "search_neighbour_chunks":
+            doc_id = op.get("doc_id")
+            chunk_id = op.get("chunk_id")
+            if not doc_id or not chunk_id:
+                continue
+            args = {
+                "doc_id": doc_id,
+                "chunk_id": chunk_id,
+                "distance": op.get("distance", 1),
+            }
+            planned_calls.append(
+                {
+                    "id": f"legacy_neighbour_{len(planned_calls)}",
+                    "function": {"name": "neighbour_search", "arguments": json.dumps(args, ensure_ascii=False)},
+                }
+            )
+
+    return planned_calls
+
+
+async def rag_search_node(state: AgentState, skill_registry: SkillRegistry) -> AgentState:
     """
     Second node (non-LLM): Perform RAG search with expanded queries.
     
@@ -17,131 +76,92 @@ async def rag_search_node(state: AgentState, elastic_mix: ElasticMix) -> AgentSt
     The search results are stored in state for use by subsequent LLM nodes that generate
     answers or validate the quality of retrieved information.
     """
-    search_config = state["search_config"]
-    search_ops = state["search_ops"]
-    historical_search_ops = state["historical_search_ops"]
-    if search_ops is None:
-        search_ops = [{"type": "search_general", "query_list": [state["question"]]}]
-    historical_search_ops = historical_search_ops + search_ops
-    chunk_index = search_config["chunk_index"]
-    title_k = search_config["title_k"]
-    chunk_k = search_config["chunk_k"]
-    
-    # Use MCP SearchService instead of direct elastic_mix calls
-    # SearchMCPServer is only for external MCP clients, internal code uses SearchService directly
-    search_service = SearchService(elastic_mix)
-    
-    # Process each search operation and combine results
+    search_ops = state.get("search_ops")
+    planned_skill_calls = state.get("planned_skill_calls", [])
+    historical_search_ops = state.get("historical_search_ops", [])
+    skill_errors = state.get("skill_errors", [])
+
+    """
+    # Backward compatibility: convert legacy search_ops into planned skill calls.
+    if not planned_skill_calls:
+        if search_ops is None:
+            search_ops = [{"type": "search_general", "query_list": [state.get("question", "")]}]
+        planned_skill_calls = _legacy_op_to_skill_calls(search_ops)
+    """
+
+    # Keep traceability of what this execution node consumed.
+    historical_search_ops = historical_search_ops + planned_skill_calls
+
+    # Process each skill call and combine results
     all_results = []
-    for search_op in search_ops:
-        search_type = search_op.get("type")
-        
-        if search_type == "search_general":
-            query_list = search_op.get("query_list", [])
-            for query in query_list:
-                # Create SearchRequest with only chunk_index - title_index conversion happens in MCP layer
-                request = SearchRequest(
-                    query=query,
-                    chunk_index=chunk_index,
-                    top_k=chunk_k,
-                    title_k=title_k
-                )
-                doc_results = await search_service.search(request)
-                # Convert DocumentResult back to dict format for compatibility
-                all_results.extend([
-                    {
-                        "doc_id": r.doc_id,
-                        "chunk_id": r.chunk_id,
-                        "text": r.text,
-                        "doc_title": r.doc_title,
-                        "score": r.score,
-                        "index": r.index
-                    }
-                    for r in doc_results
-                ])
-        
-        elif search_type == "search_doc":
-            query_list = search_op.get("query_list", [])
-            doc_id = search_op.get("doc_id")
-            if not doc_id:
-                logger.warning("search_doc operation missing doc_id, skipping")
-                continue
-            if not query_list:
-                logger.warning("search_doc operation missing query_list, skipping")
-                continue
-            
-            # Process each query in the query_list for document search
-            for query in query_list:
-                request = DocumentSearchRequest(
-                    query=query,
-                    doc_id=doc_id,
-                    chunk_index=chunk_index,
-                    top_k=chunk_k
-                )
-                doc_results = await search_service.document_search(request)
-                # Convert DocumentResult back to dict format for compatibility
-                all_results.extend([
-                    {
-                        "doc_id": r.doc_id,
-                        "chunk_id": r.chunk_id,
-                        "text": r.text,
-                        "doc_title": r.doc_title,
-                        "score": r.score,
-                        "index": r.index
-                    }
-                    for r in doc_results
-                ])
-        
-        elif search_type == "search_neighbour_chunks":
-            doc_id = search_op.get("doc_id")
-            chunk_id = search_op.get("chunk_id")
-            distance = search_op.get("distance", 1)
-            
-            if not doc_id or not chunk_id:
-                logger.warning("search_neighbour_chunks operation missing doc_id or chunk_id, skipping")
-                continue
-            
-            request = NeighbourSearchRequest(
-                doc_id=doc_id,
-                chunk_id=chunk_id,
-                chunk_index=chunk_index,
-                distance=distance
-            )
-            doc_results = await search_service.neighbour_search(request)
-            # Convert DocumentResult back to dict format for compatibility
-            all_results.extend([
+    for tool_call in planned_skill_calls:
+        function = tool_call.get("function", {})
+        skill_name = function.get("name")
+        arguments_json = function.get("arguments", "{}")
+
+        if not skill_name:
+            logger.warning("tool_call missing function.name, skipping")
+            skill_errors.append(
                 {
-                    "doc_id": r.doc_id,
-                    "chunk_id": r.chunk_id,
-                    "text": r.text,
-                    "doc_title": r.doc_title,
-                    "score": r.score,
-                    "index": r.index
+                    "skill_name": "",
+                    "code": "invalid_tool_call",
+                    "message": "Missing function.name",
+                    "arguments": arguments_json,
                 }
-                for r in doc_results
-            ])
-        
-        else:
-            logger.warning(f"Unknown search operation type: {search_type}, skipping")
-    
-    search_results = all_results
-    
-    # Original direct call code (commented out):
-    # search_results = await elastic_mix.search_ops(
-    #     search_ops, 
-    #     title_index, 
-    #     chunk_index, 
-    #     title_k=title_k, 
-    #     chunk_k=chunk_k, 
-    # )
-    
+            )
+            continue
+
+        try:
+            skill = skill_registry.get(skill_name)
+        except ValueError as e:
+            logger.warning(f"Unknown skill '{skill_name}', skipping: {e}")
+            skill_errors.append(
+                {
+                    "skill_name": skill_name,
+                    "code": "skill_not_found",
+                    "message": str(e),
+                    "arguments": arguments_json,
+                }
+            )
+            continue
+
+        try:
+            input_data = skill.input_model.model_validate_json(arguments_json)
+        except ValidationError as e:
+            logger.warning(f"Invalid arguments for skill '{skill_name}', skipping: {e}")
+            skill_errors.append(
+                {
+                    "skill_name": skill_name,
+                    "code": "invalid_arguments",
+                    "message": str(e),
+                    "arguments": arguments_json,
+                }
+            )
+            continue
+
+        try:
+            output = await skill.execute(input_data, state=state)
+            all_results.extend(output.model_dump().get("results", []))
+        except Exception as e:  # noqa: BLE001 - keep workflow resilient per call
+            logger.warning(f"Skill execution failed for '{skill_name}', skipping: {e}")
+            skill_errors.append(
+                {
+                    "skill_name": skill_name,
+                    "code": "skill_execution_failed",
+                    "message": str(e),
+                    "arguments": arguments_json,
+                }
+            )
+
     # Increment search count to track RAG search iterations
     search_count = state.get("search_count", 0) + 1
     
     return {
         **state,
-        "search_results": search_results,
+        "search_results": all_results,
         "search_count": search_count,
         "historical_search_ops": historical_search_ops,
+        "planned_skill_calls": [],
+        "skill_errors": skill_errors,
     }
 

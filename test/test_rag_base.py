@@ -53,7 +53,7 @@ def test_init_sets_prompt_and_deps(rag_with_mocks):
 @pytest.mark.asyncio
 async def test_search_expands_for_short_query(rag_with_mocks):
     rag, _elastic, expander, *_ = rag_with_mocks
-    _results, expanded = await rag.search("test", title_index="test_titles", chunk_index="test_chunks", title_k=3, chunk_k=10, query_expand_k=1)
+    _results, expanded = await rag.search("test", chunk_index="test_chunks", title_k=3, chunk_k=10, query_expand_k=1)
     assert expanded == ["expanded query"]
     expander.expand.assert_called_once()
 
@@ -62,7 +62,7 @@ async def test_search_expands_for_short_query(rag_with_mocks):
 async def test_chat_calls_llm_and_returns_prompt(rag_with_mocks):
     rag, _elastic, _expander, *_ = rag_with_mocks
     with patch("lib.rag.rag_base.call_llm_with_fallback", new_callable=AsyncMock, return_value="Test LLM response") as llm:
-        result = await rag.chat("test query", title_index="test_titles", chunk_index="test_chunks", title_k=3, chunk_k=10, query_expand_k=0)
+        result = await rag.chat("test query", chunk_index="test_chunks", title_k=3, chunk_k=10, query_expand_k=0)
 
     assert result["content"] == "Test LLM response"
     assert isinstance(result["search_results"], list)

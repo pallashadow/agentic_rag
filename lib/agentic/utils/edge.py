@@ -34,10 +34,13 @@ class Edge:
         search_count = state.get("search_count", 0)
         exceeded_limit = search_count >= max_iter
         
-        # Check if we have search operations to execute (means we need to refine)
-        search_ops = state.get("search_ops")
-        
-        if exceeded_limit or search_ops is None or len(search_ops) == 0:
+        # Check if we have planned tool calls to execute.
+        planned_skill_calls = state.get("planned_skill_calls")
+
+        # Legacy search_ops fallback is intentionally disabled.
+        has_legacy_ops = False
+        has_skill_calls = planned_skill_calls is not None and len(planned_skill_calls) > 0
+        if exceeded_limit or (not has_legacy_ops and not has_skill_calls):
             # No more search operations to execute, answer is ready
             return END
         else:

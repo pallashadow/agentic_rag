@@ -6,13 +6,13 @@ from lib.mcp.search_server import SearchMCPServer
 from lib.mcp.search_service import DocumentSearchRequest
 from lib.skills.base import BaseSkill, SkillInput, SkillOutput
 from lib.skills.general_search import DocumentResult
+from lib.agentic.config import AgentState
 
 
 class DocumentSearchInput(SkillInput):
     """Input schema for document-specific search."""
     query: str = Field(..., description="Search query")
     doc_id: str = Field(..., description="Document ID to search within")
-    chunk_index: str = Field(..., description="Elasticsearch index name for document chunks")
     top_k: int = Field(default=5, ge=1, le=20)
 
 
@@ -38,13 +38,23 @@ class DocumentSearchSkill(BaseSkill):
     def __init__(self, mcp_server: SearchMCPServer):
         self.mcp_server = mcp_server
     
-    async def execute(self, input_data: DocumentSearchInput) -> DocumentSearchOutput:
+    async def execute(
+        self,
+        input_data: DocumentSearchInput,
+        state: AgentState | None = None,
+    ) -> DocumentSearchOutput:
         """Execute document-specific search via MCP."""
+        if state is None:
+            raise ValueError("state is required to inherit chunk_index")
+
+        search_config = state.get("search_config", {})
+        chunk_index = search_config.get("chunk_index", "miles_guo")
+
         # Create MCP request with all parameters
         mcp_request = DocumentSearchRequest(
             query=input_data.query,
             doc_id=input_data.doc_id,
-            chunk_index=input_data.chunk_index,
+            chunk_index=chunk_index,
             top_k=input_data.top_k
         )
         

@@ -1,6 +1,5 @@
 from lib.agentic.config import AgentState
-from lib.search.elastic_mix import ElasticMix
-from lib.mcp import SearchService
+from lib.skills import create_default_skill_registry
 from lib.agentic.nodes import (
     entry_llm_node as _entry_llm_node,
     rag_search_node as _rag_search_node,
@@ -16,8 +15,8 @@ class Node:
     """
     
     def __init__(self):
-        # Initialize ElasticMix only for MCP layer - not used directly
-        self.elastic_mix = ElasticMix()
+        # Build skill registry via skills-layer factory to keep MCP hidden from nodes.
+        self.skill_registry = create_default_skill_registry()
 
     async def entry_llm_node(self, state: AgentState) -> AgentState:
         """Wrapper for entry_llm_node from lib.agentic.nodes."""
@@ -25,8 +24,7 @@ class Node:
 
     async def rag_search_node(self, state: AgentState) -> AgentState:
         """Wrapper for rag_search_node from lib.agentic.nodes."""
-        # Pass elastic_mix to rag_search_node which uses MCP layer internally
-        return await _rag_search_node(state, self.elastic_mix)
+        return await _rag_search_node(state, self.skill_registry)
         
     async def rag_reply_node(self, state: AgentState) -> AgentState:
         """Wrapper for rag_reply_node from lib.agentic.nodes."""
@@ -34,5 +32,5 @@ class Node:
 
     async def reply_validation_node(self, state: AgentState) -> AgentState:
         """Wrapper for reply_validation_node from lib.agentic.nodes."""
-        return await _reply_validation_node(state)
+        return await _reply_validation_node(state, self.skill_registry)
 

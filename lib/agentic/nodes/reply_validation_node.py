@@ -2,13 +2,73 @@ from lib.agentic.config import AgentState
 from lib.agentic.prompts import get_agentic_prompt_and_format
 from lib.llm.litellm_api import call_llm_with_fallback, call_llm_with_tools
 from lib.agentic.prompts.prompt_loader import render_prompt
+from lib.agentic.tools.validation_tool import build_validation_tool
 from lib.app_logger import get_logger
+from lib.skills.registry import SkillRegistry
 import json
 
 logger = get_logger(__name__)
 
 
-async def reply_validation_node(state: AgentState) -> AgentState:
+def _legacy_search_ops_to_planned_calls(search_ops: list[dict]) -> list[dict]:
+    """Convert legacy search_ops to skill tool calls for execution node."""
+    planned_calls = []
+    for op in search_ops:
+        search_type = op.get("type")
+        if search_type == "search_general":
+            args = {"query_list": op.get("query_list", [])}
+            if "top_k" in op:
+                args["top_k"] = op["top_k"]
+            planned_calls.append(
+                {
+                    "id": f"legacy_general_{len(planned_calls)}",
+                    "function": {
+                        "name": "general_search",
+                        "arguments": json.dumps(args, ensure_ascii=False),
+                    },
+                }
+            )
+        elif search_type == "search_doc":
+            doc_id = op.get("doc_id")
+            query_list = op.get("query_list", [])
+            if not doc_id or not query_list:
+                continue
+            for query in query_list:
+                args = {"query": query, "doc_id": doc_id}
+                if "top_k" in op:
+                    args["top_k"] = op["top_k"]
+                planned_calls.append(
+                    {
+                        "id": f"legacy_doc_{len(planned_calls)}",
+                        "function": {
+                            "name": "document_search",
+                            "arguments": json.dumps(args, ensure_ascii=False),
+                        },
+                    }
+                )
+        elif search_type == "search_neighbour_chunks":
+            doc_id = op.get("doc_id")
+            chunk_id = op.get("chunk_id")
+            if not doc_id or not chunk_id:
+                continue
+            args = {
+                "doc_id": doc_id,
+                "chunk_id": chunk_id,
+                "distance": op.get("distance", 1),
+            }
+            planned_calls.append(
+                {
+                    "id": f"legacy_neighbour_{len(planned_calls)}",
+                    "function": {
+                        "name": "neighbour_search",
+                        "arguments": json.dumps(args, ensure_ascii=False),
+                    },
+                }
+            )
+    return planned_calls
+
+
+async def reply_validation_node(state: AgentState, skill_registry: SkillRegistry) -> AgentState:
     """
     Fourth node (third LLM node): Validate answer quality and refine queries if needed.
     
@@ -27,6 +87,7 @@ async def reply_validation_node(state: AgentState) -> AgentState:
     max_iter = agentic_config.get("max_iter", 3)
     search_count = state.get("search_count", 0)
     search_results = state.get("search_results", [])
+    planned_skill_calls = []
     
     # Check if maximum search iterations have been reached
     exceeded_limit = search_count >= max_iter
@@ -49,63 +110,9 @@ async def reply_validation_node(state: AgentState) -> AgentState:
         )
         prompt_agentic += "\n\n请使用 validate_and_refine 工具进行评估。"
         
-        # Define tools for validation and refinement
-        tools = [
-            {
-                "type": "function",
-                "function": {
-                    "name": "validate_and_refine",
-                    "description": "Validate answer quality and propose follow-up retrieval operations if needed",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "type_state": {
-                                "type": "string",
-                                "enum": ["valid_answer", "refine_query"],
-                                "description": "State indicating if answer is valid or needs refinement"
-                            },
-                            "search_ops": {
-                                "type": "array",
-                                "items": {
-                                    "type": "object",
-                                    "properties": {
-                                        "type": {
-                                            "type": "string",
-                                            "enum": ["search_general", "search_doc", "search_neighbour_chunks"],
-                                            "description": "Type of search operation"
-                                        },
-                                        "query_list": {
-                                            "type": "array",
-                                            "items": {"type": "string"},
-                                            "description": "List of queries for search_general type"
-                                        },
-                                        "doc_id": {
-                                            "type": "string",
-                                            "description": "Document ID for search_doc or search_neighbour_chunks"
-                                        },
-                                        "chunk_id": {
-                                            "type": "string",
-                                            "description": "Chunk ID for search_neighbour_chunks"
-                                        },
-                                        "distance": {
-                                            "type": "integer",
-                                            "description": "Distance for search_neighbour_chunks"
-                                        }
-                                    }
-                                },
-                                "description": "Search operations to execute if type_state is refine_query"
-                            },
-                            "valid_search_indices": {
-                                "type": "array",
-                                "items": {"type": "integer"},
-                                "description": "Indices of valid search results (for valid_answer state)"
-                            }
-                        },
-                        "required": ["type_state", "search_ops"]
-                    }
-                }
-            }
-        ]
+        # Define validation tool and skill tools.
+        validation_tool = build_validation_tool()
+        tools = [validation_tool] + skill_registry.get_all_tool_schemas()
         
         try:
             # Call LLM with function calling
@@ -113,18 +120,32 @@ async def reply_validation_node(state: AgentState) -> AgentState:
                 prompt_agentic,
                 tools=tools,
                 model_name="gemini",
-                tool_choice="required"
+                tool_choice="auto"
             )
-            
-            # Parse function call result
-            if response["tool_calls"]:
-                tool_call = response["tool_calls"][0]
-                function_args = json.loads(tool_call["function"]["arguments"])
+
+            # Extract validation call and optional skill calls.
+            validation_call = None
+            for tool_call in response.get("tool_calls", []):
+                fn = tool_call.get("function", {})
+                fn_name = fn.get("name")
+                if fn_name == "validate_and_refine":
+                    validation_call = tool_call
+                elif fn_name in skill_registry.list_available():
+                    planned_skill_calls.append(tool_call)
+
+            if validation_call is not None:
+                function_args = json.loads(validation_call["function"]["arguments"])
                 type_state = function_args["type_state"]
                 search_ops = function_args.get("search_ops", []) if type_state == "refine_query" else []
+
+                # Backward compatibility: convert legacy search_ops into planned skill calls.
+                if not planned_skill_calls and search_ops:
+                    planned_skill_calls = _legacy_search_ops_to_planned_calls(search_ops)
             else:
-                # Fallback to structured output
-                _, agentic_response_format = get_agentic_prompt_and_format(question, answer, search_results, historical_search_ops, agentic_config)
+                # Fallback to structured output when model returns no validation tool call.
+                _, agentic_response_format = get_agentic_prompt_and_format(
+                    question, answer, search_results, historical_search_ops, agentic_config
+                )
                 llm_output = await call_llm_with_fallback(
                     prompt_agentic,
                     model_name="gemini",
@@ -132,6 +153,7 @@ async def reply_validation_node(state: AgentState) -> AgentState:
                 )
                 type_state = llm_output["type_state"]
                 search_ops = llm_output.get("search_ops", []) if type_state == "refine_query" else []
+                planned_skill_calls = _legacy_search_ops_to_planned_calls(search_ops)
         except Exception as e:
             # Fallback to structured output on error
             logger.warning(f"Function calling failed, falling back to structured output: {e}")
@@ -143,13 +165,17 @@ async def reply_validation_node(state: AgentState) -> AgentState:
             )
             type_state = llm_output["type_state"]
             search_ops = llm_output.get("search_ops", []) if type_state == "refine_query" else []
+            planned_skill_calls = _legacy_search_ops_to_planned_calls(search_ops)
     else:
         type_state = "valid_answer"
         search_ops = []
+        planned_skill_calls = []
         
     if type_state == "valid_answer":
         # Accept current answer: either limit reached or validation passed
         answer = state["answer"]
+        planned_skill_calls = []
+        search_ops = []
     else:  # type_state == "refine_query"
         # Refine query for another search iteration
         answer = ""  # Clear answer to trigger new search and generation
@@ -158,6 +184,7 @@ async def reply_validation_node(state: AgentState) -> AgentState:
     return {
         **state,
         "search_ops": search_ops,
+        "planned_skill_calls": planned_skill_calls,
         "answer": answer,
         "search_results": search_results,
     }

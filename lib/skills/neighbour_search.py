@@ -6,13 +6,13 @@ from lib.mcp.search_server import SearchMCPServer
 from lib.mcp.search_service import NeighbourSearchRequest
 from lib.skills.base import BaseSkill, SkillInput, SkillOutput
 from lib.skills.general_search import DocumentResult
+from lib.agentic.config import AgentState
 
 
 class NeighbourSearchInput(SkillInput):
     """Input schema for neighbour chunk search."""
     doc_id: str = Field(..., description="Document ID containing the chunk")
     chunk_id: str = Field(..., description="Chunk ID to find neighbours for")
-    chunk_index: str = Field(..., description="Elasticsearch index name for document chunks")
     distance: int = Field(
         default=1,
         description="Distance from the chunk to search (number of chunks away)",
@@ -46,13 +46,23 @@ class NeighbourSearchSkill(BaseSkill):
     def __init__(self, mcp_server: SearchMCPServer):
         self.mcp_server = mcp_server
     
-    async def execute(self, input_data: NeighbourSearchInput) -> NeighbourSearchOutput:
+    async def execute(
+        self,
+        input_data: NeighbourSearchInput,
+        state: AgentState | None = None,
+    ) -> NeighbourSearchOutput:
         """Execute neighbour chunk search via MCP."""
+        if state is None:
+            raise ValueError("state is required to inherit chunk_index")
+
+        search_config = state.get("search_config", {})
+        chunk_index = search_config.get("chunk_index", "miles_guo")
+
         # Create MCP request with all parameters
         mcp_request = NeighbourSearchRequest(
             doc_id=input_data.doc_id,
             chunk_id=input_data.chunk_id,
-            chunk_index=input_data.chunk_index,
+            chunk_index=chunk_index,
             distance=input_data.distance
         )
         

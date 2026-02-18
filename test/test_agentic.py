@@ -7,6 +7,7 @@ import pytest
 from unittest.mock import Mock, patch, AsyncMock
 from lib.agentic.config import get_agent_state_default
 from lib.agentic.graph import AgenticGraph
+from pydantic import BaseModel
 
 
 @pytest.fixture
@@ -97,77 +98,66 @@ def mock_call_llm_with_fallback():
 
 
 @pytest.fixture
-def mock_elastic_mix():
+def mock_skill_registry():
     """
-    Mock implementation of ElasticMix.
-    Returns search results with index field.
-    
-    Motivation: simulate search operations without calling actual Elasticsearch.
+    Mock implementation of SkillRegistry with a minimal general_search skill.
+    Returns deterministic search results with index field.
+
+    Motivation: align tests with current skill-based architecture without
+    depending on MCP/Elasticsearch.
     """
-    class MockElasticMix:
+    class _GeneralSearchInput(BaseModel):
+        query_list: list[str]
+        top_k: int = 10
+
+    class _GeneralSearchOutput(BaseModel):
+        results: list[dict]
+
+    class _MockGeneralSearchSkill:
+        name = "general_search"
+        description = "Mock general search skill"
+        input_model = _GeneralSearchInput
+        output_model = _GeneralSearchOutput
+
+        def to_tool_schema(self):
+            return {
+                "type": "function",
+                "function": {
+                    "name": self.name,
+                    "description": self.description,
+                    "parameters": self.input_model.model_json_schema(),
+                },
+            }
+
+        async def execute(self, input_data, state=None):
+            results = []
+            for i, query in enumerate(input_data.query_list, start=1):
+                results.append(
+                    {
+                        "index": i,
+                        "_id": f"result_{i}",
+                        "content": f"Search result for query: {query}",
+                        "score": 1.0 - (i - 1) * 0.1,
+                    }
+                )
+            return _GeneralSearchOutput(results=results)
+
+    class _MockSkillRegistry:
         def __init__(self):
-            pass
-        
-        async def search(self, query_list, title_index, chunk_index, title_k=3, chunk_k=10):
-            # Return mock search results with index field
-            search_results = []
-            for i, query in enumerate(query_list):
-                search_results.append({
-                    "index": i + 1,
-                    "_id": f"result_{i}",
-                    "content": f"Search result for query: {query}",
-                    "score": 0.9 - i * 0.1
-                })
-            return search_results
-        
-        async def search_ops(self, ops, title_index, chunk_index, title_k=3, chunk_k=10):
-            """
-            Mock implementation of search_ops.
-            Processes a list of search operations and returns combined results.
-            """
-            search_results = []
-            index_counter = 1
-            
-            for op in ops:
-                op_type = op.get("type")
-                if op_type == "search_general":
-                    # Extract queries from query_list
-                    query_list = op.get("query_list", [])
-                    for query in query_list:
-                        search_results.append({
-                            "index": index_counter,
-                            "_id": f"result_{index_counter}",
-                            "content": f"Search result for query: {query}",
-                            "score": 0.9 - (index_counter - 1) * 0.1
-                        })
-                        index_counter += 1
-                elif op_type == "search_doc":
-                    # Extract query and doc_ids
-                    query = op.get("query", "")
-                    doc_ids = op.get("doc_ids", [])
-                    search_results.append({
-                        "index": index_counter,
-                        "_id": f"result_{index_counter}",
-                        "content": f"Search result for query: {query} in docs: {doc_ids}",
-                        "score": 0.9 - (index_counter - 1) * 0.1
-                    })
-                    index_counter += 1
-                elif op_type == "search_neighbour_chunks":
-                    # Extract doc_id, chunk_id, distance
-                    doc_id = op.get("doc_id", "")
-                    chunk_id = op.get("chunk_id", "")
-                    distance = op.get("distance", 1)
-                    search_results.append({
-                        "index": index_counter,
-                        "_id": f"result_{index_counter}",
-                        "content": f"Neighbour chunks for doc: {doc_id}, chunk: {chunk_id}, distance: {distance}",
-                        "score": 0.9 - (index_counter - 1) * 0.1
-                    })
-                    index_counter += 1
-            
-            return search_results
-    
-    return MockElasticMix
+            self._skills = {"general_search": _MockGeneralSearchSkill()}
+
+        def get(self, name: str):
+            if name not in self._skills:
+                raise ValueError(f"Skill '{name}' not found")
+            return self._skills[name]
+
+        def list_available(self):
+            return list(self._skills.keys())
+
+        def get_all_tool_schemas(self):
+            return [skill.to_tool_schema() for skill in self._skills.values()]
+
+    return _MockSkillRegistry()
 
 
 @pytest.fixture
@@ -277,7 +267,7 @@ def mock_call_llm_with_tools():
 
 
 @pytest.fixture
-def workflow_with_mocks(mock_call_llm_with_fallback, mock_call_llm_with_tools, mock_elastic_mix):
+def workflow_with_mocks(mock_call_llm_with_fallback, mock_call_llm_with_tools, mock_skill_registry):
     """
     Build a workflow with all external dependencies mocked.
     
@@ -288,7 +278,7 @@ def workflow_with_mocks(mock_call_llm_with_fallback, mock_call_llm_with_tools, m
          patch("lib.agentic.nodes.rag_reply_node.call_llm_with_fallback", side_effect=mock_call_llm_with_fallback), \
          patch("lib.agentic.nodes.reply_validation_node.call_llm_with_tools", side_effect=mock_call_llm_with_tools), \
          patch("lib.agentic.nodes.reply_validation_node.call_llm_with_fallback", side_effect=mock_call_llm_with_fallback), \
-         patch("lib.agentic.node.ElasticMix", new=mock_elastic_mix):
+         patch("lib.agentic.utils.node.create_default_skill_registry", return_value=mock_skill_registry):
         graph = AgenticGraph()
         workflow = graph.build_workflow()
         app = workflow.compile()
