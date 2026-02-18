@@ -236,10 +236,13 @@ async def test_reply_validation_node_with_function_calling():
     state["answer"] = "Test answer"
     state["search_results"] = [{"index": 1}, {"index": 2}]
     state["search_count"] = 1
+    skill_registry = Mock()
+    skill_registry.get_all_tool_schemas.return_value = []
+    skill_registry.list_available.return_value = []
     
     with patch("lib.agentic.nodes.reply_validation_node.call_llm_with_tools", new_callable=AsyncMock, return_value=mock_response), \
          patch("lib.agentic.nodes.reply_validation_node.render_prompt", return_value="Test prompt"):
-        result = await reply_validation_node(state)
+        result = await reply_validation_node(state, skill_registry)
         
         assert result["search_ops"] == []
         assert result["answer"] == "Test answer"
