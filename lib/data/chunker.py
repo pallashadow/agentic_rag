@@ -2,6 +2,7 @@ import os
 import re
 import tiktoken
 from tqdm import tqdm
+from lib.data.files import load_whitelist_names
 
 class NaiveChunker:
     def __init__(self, 
@@ -10,13 +11,19 @@ class NaiveChunker:
                  chunk_size=500,
                  chunk_overlap=100,
                  reload=False,
-                 encoding="cl100k_base"
+                 encoding="cl100k_base",
+                 writelist_file=None, # whitelist files to process
+                 limit=None, # limit the number of files to process
+                 skip_existing=True, # skip existing chunks files
                  ):
         self.input_dir = input_dir
         self.output_dir = output_dir
         self.chunk_size = chunk_size
         self.chunk_overlap = chunk_overlap
         self.reload = reload
+        self.writelist_file = writelist_file
+        self.limit = limit
+        self.skip_existing = skip_existing
         # Initialize tiktoken encoder for token-based chunking
         self.encoding = tiktoken.get_encoding(encoding)
 
@@ -26,9 +33,20 @@ class NaiveChunker:
         if not os.path.isdir(self.output_dir):
             os.makedirs(self.output_dir)
         
+        # Read whitelist once so filtering is deterministic and cheap during traversal.
+        whitelist_names = load_whitelist_names(self.writelist_file)
+
         # Get all files from input directory
-        files = [os.path.join(self.input_dir, f) for f in os.listdir(self.input_dir) 
+        files = [os.path.join(self.input_dir, f) for f in os.listdir(self.input_dir)
                  if os.path.isfile(os.path.join(self.input_dir, f))]
+
+        # If whitelist is provided and not empty, only process whitelisted files.
+        if whitelist_names:
+            files = [f for f in files if os.path.basename(f) in whitelist_names]
+
+        # Optionally limit file count for quick experiments or partial runs.
+        if self.limit is not None:
+            files = files[:max(0, int(self.limit))]
         
         # Process each file
         for file_path in tqdm(files, desc="Chunking files"):
@@ -37,9 +55,12 @@ class NaiveChunker:
                 base_name = os.path.basename(file_path)
                 doc_id = os.path.splitext(base_name)[0]
                 
-                # Check if first chunk file exists (skip if reload=False)
+                # Keep backward compatibility: reload=True means always reprocess.
+                should_skip_existing = self.skip_existing and not self.reload
+
+                # Check if first chunk file exists and skip when configured.
                 first_chunk_file = os.path.join(self.output_dir, f"{doc_id}_1.txt")
-                if not self.reload and os.path.exists(first_chunk_file):
+                if should_skip_existing and os.path.exists(first_chunk_file):
                     continue
                 
                 # Get chunks from the file

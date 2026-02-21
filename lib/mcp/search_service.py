@@ -2,6 +2,7 @@
 
 from pydantic import BaseModel, Field
 from lib.search.elastic_mix import ElasticMix
+from lib.index_mapping import get_index_meta
 from lib.app_logger import get_logger
 
 logger = get_logger(__name__)
@@ -65,8 +66,7 @@ class SearchService:
     
     async def search(self, request: SearchRequest) -> list[DocumentResult]:
         """Search documents using general search."""
-        # Derive title_index from chunk_index in MCP layer
-        title_index = f"{request.chunk_index}_titles"
+        title_index = get_index_meta(request.chunk_index)["title_index"]
         chunk_index = request.chunk_index
         
         # Use search_ops with search_general operation
@@ -98,8 +98,7 @@ class SearchService:
     
     async def general_search(self, request: GeneralSearchRequest) -> list[DocumentResult]:
         """General search with query list support."""
-        # Derive title_index from chunk_index in MCP layer
-        title_index = f"{request.chunk_index}_titles"
+        title_index = get_index_meta(request.chunk_index)["title_index"]
         chunk_index = request.chunk_index
         
         # Use search_ops with search_general operation

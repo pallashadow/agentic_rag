@@ -55,13 +55,18 @@
             </div>
             <div class="field">
               <label for="chunkIndex">chunk_index</label>
-              <input id="chunkIndex" type="text" list="chunkIndexOptions" placeholder="miles_guo" autocomplete="off" />
-              <datalist id="chunkIndexOptions">
-                <option value="miles_guo"></option>
-                <option value="lzj"></option>
-                <option value="mzd"></option>
-                <option value="lxb"></option>
-              </datalist>
+              <select id="chunkIndex">
+                <option value="miles_guo">miles_guo</option>
+                <option value="lzj">lzj</option>
+                <option value="mzd">mzd</option>
+                <option value="lxb">lxb</option>
+                <option value="epstein9">epstein9</option>
+              </select>
+            </div>
+
+            <div class="field">
+              <label for="chunkIndexGuide">chunk_index 索引说明</label>
+              <textarea id="chunkIndexGuide" class="docPreview" readonly placeholder="Loading docs/README_INDEX.md..."></textarea>
             </div>
 
             <div class="btnRow">

@@ -52,5 +52,14 @@ body:
     扩展：["一个人应具备哪些道德品格", "如何加以实践与培养"]
 
     对于前三种类型，expanded_queries 设为原问题。
+    {cross_lang_section}
 
+    请使用 classify_query 工具进行分类和查询扩展。
 
+cross_lang:
+  template: |-
+    重要：待检索文档的语言为「{doc_lang}」（en=英文，zh=中文），用户提问可能为「{query_lang}」。你必须仅使用「{doc_lang}」输出所有 expanded_queries，以便与文档语言一致。
+
+tool_descriptions:
+  expanded_queries: "RAG 检索用扩展查询（1-3 条，每条 15 字以内）"
+  expanded_queries_cross_lang_suffix: " 必须全部使用「{doc_lang}」（文档语言），勿使用用户提问语言。"

@@ -6,7 +6,8 @@ def get_agentic_prompt_and_format(
         answer: str, 
         search_results: list[dict], 
         historical_search_ops: list[dict], 
-        agentic_config: dict = None):
+        agentic_config: dict = None,
+        prompt_lang: str | None = None):
     """
     Build agentic prompt and response format together.
     
@@ -19,6 +20,7 @@ def get_agentic_prompt_and_format(
 
     prompt_agentic = render_prompt(
         "agentic_prompt.yaml",
+        prompt_lang=prompt_lang,
         question=question,
         historical_search_ops=historical_search_ops,
         search_results_txt=search_results_txt,

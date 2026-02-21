@@ -2,9 +2,11 @@ import os
 import json
 import re
 import asyncio
+import tiktoken
 from tqdm import tqdm
 
 from lib.llm.litellm_api import call_llm_with_fallback
+from lib.data.files import load_whitelist_names
 
 class SummaryExtractor:
     """Extract and manage document summaries from text files"""
@@ -13,7 +15,11 @@ class SummaryExtractor:
                  input_dir="./data_miles/documents/", 
                  output_file="./data_miles/summaries.json",
                  max_workers=8,
-                 limit=None):
+                 input_token_limit=8000, # read up to 8000 tokens from each file
+                 limit=None,
+                 lang="zh",
+                 writelist_file=None,
+                 skip_existing=True):
         """
         Initialize SummaryExtractor
         
@@ -25,7 +31,22 @@ class SummaryExtractor:
         self.input_dir = input_dir
         self.output_file = output_file
         self.max_workers = max_workers
+        self.input_token_limit = input_token_limit
         self.limit = limit
+        self.writelist_file = writelist_file
+        self.skip_existing = skip_existing
+        self.encoding = tiktoken.get_encoding("cl100k_base")
+        self.lang = lang
+        
+    def _truncate_text_by_tokens(self, txt: str) -> str:
+        """Truncate long input to control LLM cost and context size."""
+        if self.input_token_limit is None:
+            return txt
+        token_limit = max(1, int(self.input_token_limit))
+        tokens = self.encoding.encode(txt)
+        if len(tokens) <= token_limit:
+            return txt
+        return self.encoding.decode(tokens[:token_limit])
     
     async def _process_file(self, in_file, semaphore, pbar):
         """Process a single file to extract summary"""
@@ -34,31 +55,38 @@ class SummaryExtractor:
                 id = os.path.basename(in_file).split(".")[0]
                 with open(in_file, "r", encoding="utf-8") as f:
                     txt = f.read()
+                txt = self._truncate_text_by_tokens(txt)
                 summary = await self.get_summary(txt)
                 return id, summary
             finally:
                 pbar.update(1)
 
-    async def run(self, skip_existing=True):
+    async def run(self):
         """
         Extract summary of each document and organize by ID into a JSON file using async parallel processing
         Skips documents that already exist in the output file
         """
+
         # Load existing summaries if output file exists
         existing_summaries = {}
-        if skip_existing and os.path.exists(self.output_file):
+        if self.skip_existing and os.path.exists(self.output_file):
             with open(self.output_file, "r", encoding="utf-8") as f:
                 existing_summaries = json.load(f)
         
-        # Get all files and filter out already processed ones
-        all_files = [os.path.join(self.input_dir, x) for x in os.listdir(self.input_dir)]
+        # Get all files and optionally narrow them down by whitelist.
+        all_files = [os.path.join(self.input_dir, x) for x in os.listdir(self.input_dir)
+                     if os.path.isfile(os.path.join(self.input_dir, x))]
+        whitelist_names = load_whitelist_names(self.writelist_file)
+        if whitelist_names:
+            all_files = [p for p in all_files if os.path.basename(p) in whitelist_names]
+
         files = []
         # Track all existing document IDs from files
         existing_doc_ids = set()
         for in_file in all_files:
             doc_id = os.path.basename(in_file).split(".")[0]
             existing_doc_ids.add(doc_id)
-            if doc_id not in existing_summaries:
+            if (not self.skip_existing) or (doc_id not in existing_summaries):
                 files.append(in_file)
         
         if self.limit is not None:
@@ -93,6 +121,9 @@ class SummaryExtractor:
             print("All documents have already been processed.")
     
     async def get_summary(self, txt: str):
-        prompt = f"请对以下演讲的核心内容进行摘要，突出核心命名实体名称，不超过100个字。以下是文本：{txt}"
+        if self.lang == "zh":
+            prompt = f"请对以下演讲的核心内容进行摘要，突出核心命名实体名称，不超过100个字。以下是文本：{txt}"
+        elif self.lang == "en":
+            prompt = f"Please summarize the core content of the following speech, highlighting the core named entities, no more than 100 words. The text is: {txt}"
         summary = await call_llm_with_fallback(prompt)
         return summary

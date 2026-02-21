@@ -9,14 +9,34 @@ logger = get_logger(__name__)
 class ElasticWriteClientTitles(ElasticWriteClientBase):
     def __init__(self, 
                  title_index_name="miles_guo_titles",
-                 title_path="./data/data_miles/titles.json",
-                 summaries_path="./data/data_miles/summaries.json",
+                 title_path=None,
+                 summaries_path=None,
                  ):
+        """
+        Initialize Elasticsearch client for indexing document titles and summaries.
+        
+        Args:
+            title_index_name: Name of the Elasticsearch index for titles
+            title_path: Path to JSON file containing document titles. If None, doc_title field will not be added.
+            summaries_path: Path to JSON file containing document summaries. If None, doc_summary field will not be added.
+        
+        Note:
+            At least one of title_path or summaries_path must be provided when calling insert_titles().
+        """
         super().__init__(title_index_name)
         self.title_path = title_path
         self.summaries_path = summaries_path
             
     def clear_index(self):
+        """
+        Delete and recreate the Elasticsearch index with updated mappings.
+        
+        This method is used to reset the index completely, removing all existing documents
+        and applying fresh mappings. Useful for reindexing or fixing mapping issues.
+        
+        Returns:
+            bool: True if successful
+        """
         try:
             self.client.indices.delete(index=self.index_name)
         except Exception as e:
@@ -27,6 +47,19 @@ class ElasticWriteClientTitles(ElasticWriteClientBase):
         return True
     
     def update_mappings(self, mappings=None):
+        """
+        Update Elasticsearch index mappings for title documents.
+        
+        Defines the field types for the index. If no mappings are provided,
+        uses default mappings with doc_id (keyword), doc_summary (text), 
+        doc_title (text), and question1 (text) fields.
+        
+        Args:
+            mappings: Optional custom mappings dictionary. If None, uses default mappings.
+        
+        Returns:
+            dict: Response from Elasticsearch put_mapping operation
+        """
         if mappings is None:
             mappings = {
                 "properties": {
@@ -52,10 +85,44 @@ class ElasticWriteClientTitles(ElasticWriteClientBase):
     
         
     def insert_titles(self, limit=None, skip_existing=True):
-        with open(self.summaries_path, "r", encoding="utf-8") as f:
-            self.summaries = json.load(f)
-        with open(self.title_path, "r", encoding="utf-8") as f:
-            self.titles = json.load(f)
+        """
+        Insert document titles and summaries into Elasticsearch index.
+        
+        Loads titles and/or summaries from JSON files and indexes them in batches.
+        Only includes fields for which corresponding paths were provided during initialization.
+        Documents are indexed with doc_id, doc_title (if title_path provided), 
+        doc_summary (if summaries_path provided), and question1 fields.
+        
+        Args:
+            limit: Maximum number of documents to process. If None, processes all documents.
+            skip_existing: If True, skips documents that already exist in the index.
+        
+        Raises:
+            ValueError: If both title_path and summaries_path are None.
+        
+        Note:
+            At least one of title_path or summaries_path must have been provided during initialization.
+        """
+        # Load summaries if summaries_path is provided
+        if self.summaries_path is not None:
+            with open(self.summaries_path, "r", encoding="utf-8") as f:
+                self.summaries = json.load(f)
+        else:
+            self.summaries = {}
+        
+        # Load titles if title_path is provided
+        if self.title_path is not None:
+            with open(self.title_path, "r", encoding="utf-8") as f:
+                self.titles = json.load(f)
+        else:
+            self.titles = {}
+        
+        # At least one path must be provided
+        if not self.titles and not self.summaries:
+            raise ValueError("At least one of title_path or summaries_path must be provided")
+        
+        # Use titles as primary source if available, otherwise use summaries
+        source_dict = self.titles if self.titles else self.summaries
         
         # Check which documents already exist
         existing_ids = set()
@@ -66,25 +133,38 @@ class ElasticWriteClientTitles(ElasticWriteClientBase):
         batch = []
         processed = 0
         skipped = 0
-        for doc_id, title in self.titles.items():
+        
+        # Calculate total items for progress bar
+        total_items = len(source_dict)
+        if limit:
+            total_items = min(total_items, limit)
+        
+        for doc_id, value in tqdm(source_dict.items(), desc="Inserting titles", total=total_items):
             if limit and processed >= limit:
                 break
             if skip_existing and doc_id in existing_ids:
                 skipped += 1
                 continue
             
-            summary = self.summaries.get(doc_id, None)
-            if not summary:
-                print(f"Summary not found for document {doc_id}")
-                summary = ""
-            question = ""
+            # Build document with only available fields
             doc = {
                 "_id": doc_id,
                 "doc_id": doc_id,
-                "doc_summary": summary,
-                "doc_title": title,
-                "question1": question
+                "question1": ""
             }
+            
+            # Add doc_title if title_path is provided
+            if self.title_path is not None:
+                doc["doc_title"] = self.titles.get(doc_id, "")
+            
+            # Add doc_summary if summaries_path is provided
+            if self.summaries_path is not None:
+                summary = self.summaries.get(doc_id, None)
+                if not summary:
+                    print(f"Summary not found for document {doc_id}")
+                    summary = ""
+                doc["doc_summary"] = summary
+            
             batch.append(doc)
             processed += 1
             if len(batch) >= batch_size:
@@ -99,6 +179,11 @@ class ElasticWriteClientTitles(ElasticWriteClientBase):
 
 class ElasticReadClientTitles(ElasticReadClientBase):
     def __init__(self):
+        """
+        Initialize Elasticsearch read client for searching document titles.
+        
+        This client is used for querying the title index without write operations.
+        """
         super().__init__()
 
     async def search_title_naive(self, 
@@ -107,14 +192,22 @@ class ElasticReadClientTitles(ElasticReadClientBase):
                                  k:int = 10, 
         ) -> list[dict]:
         """
-        Search titles by query, sorted by relevance score (default).
+        Search document titles and summaries using multi-match query.
+        
+        Performs a naive search across doc_summary (weighted 2x) and doc_title fields,
+        returning results sorted by relevance score in descending order.
         
         Args:
-            query: Search query string
-            k: Number of results to return (default: 10)
+            query: Search query string to match against titles and summaries
+            index_name: Name of the Elasticsearch index to search
+            k: Number of top results to return (default: 10)
             
         Returns:
-            list: List of document sources, sorted by relevance score (descending)
+            list[dict]: List of document dictionaries with added 'score' field, 
+                       sorted by relevance score (descending)
+        
+        Raises:
+            ValueError: If index_name is None
         """
         if index_name is None:
             raise ValueError("index_name is required")

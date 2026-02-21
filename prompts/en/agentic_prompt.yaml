@@ -1,0 +1,69 @@
+schema_version: 1
+id: reply_validation_and_refine
+version: 0.1.0
+
+meta:
+  title: Validate answer quality and propose follow-up retrieval ops
+  owner: lib.agentic
+  purpose: >
+    Evaluate whether the current answer sufficiently addresses the question.
+    If not, propose follow-up retrieval operations in a structured way.
+  tags:
+    - validation
+    - refine-query
+    - retrieval-ops
+
+inputs:
+  - name: question
+    type: string
+    required: true
+  - name: historical_search_ops
+    type: array
+    required: true
+    description: Historical search operations already attempted.
+  - name: search_results_txt
+    type: string
+    required: true
+    description: JSON string of search results (ensure_ascii=False recommended).
+  - name: answer
+    type: string
+    required: true
+
+examples:
+  - name: valid_answer_example
+    inputs:
+      question: "Sample question"
+      historical_search_ops: []
+      search_results_txt: "[]"
+      answer: "Sample answer"
+    notes: The model should output type_state=valid_answer with empty arrays.
+
+body:
+  template: |-
+    Evaluate answer quality and decide whether further retrieval is needed:
+
+    User question: {question}
+
+    Previous search operations: {historical_search_ops}
+
+    Useful retrieved search results used for answer generation:
+    {search_results_txt}
+
+    Current generated answer:
+    {answer}
+
+    Please evaluate whether the answer sufficiently addresses the user's question:
+
+    1. **valid_answer**: Return this state if the answer already responds sufficiently, accurately, and completely.
+       - Set refined_queries to an empty array
+       - Set valid_search_indices to an empty array
+       - Set search_ops to an empty array
+
+    2. **refine_query**: Return this state if the answer is insufficient, inaccurate, or missing key information and further retrieval is required.
+       - Generate a search_ops array. Each element is a search operation object:
+         * Type can be "search_general" (general search; requires query_list)
+         * Type can be "search_doc"; if doc_summary is highly relevant to the question, append this type using doc_id
+         * Type can be "search_neighbour_chunks" for neighboring chunk search; if a chunk is highly relevant, append this type using doc_id and chunk_id
+         * Select suitable search types based on the refined query needs
+
+    Return the result strictly in JSON Schema format.

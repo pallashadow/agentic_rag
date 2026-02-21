@@ -1,20 +1,24 @@
 import json
 
 
-def _load_rag_prompt_config() -> dict:
+def _load_rag_prompt_config(prompt_lang: str | None = None) -> dict:
     """Load RAG prompt config for agentic flow from shared rag.yaml."""
     from lib.agentic.prompts.prompt_loader import load_prompt_template
 
-    tmpl = load_prompt_template("rag.yaml")
+    tmpl = load_prompt_template("rag.yaml", prompt_lang=prompt_lang)
     body = tmpl.get("body", {})
     if not isinstance(body, dict):
         body = {}
     return body
 
 
-def _build_rag_prompt(question: str, search_results: list[dict]) -> str:
+def _build_rag_prompt(
+    question: str,
+    search_results: list[dict],
+    prompt_lang: str | None = None,
+) -> str:
     """Build the RAG answer prompt without depending on lib.rag."""
-    body = _load_rag_prompt_config()
+    body = _load_rag_prompt_config(prompt_lang=prompt_lang)
     prompt_before = body.get("prompt_before", "")
     prompt_after = body.get("prompt_after", "")
     topic_line_template = body.get("topic_line_template", "{question}\n")
@@ -33,14 +37,19 @@ def _build_rag_prompt(question: str, search_results: list[dict]) -> str:
     return "\n".join(parts)
 
 
-def get_rag_prompt_and_format(question, search_results, agentic_config=None):
+def get_rag_prompt_and_format(
+    question,
+    search_results,
+    agentic_config=None,
+    prompt_lang: str | None = None,
+):
     """
     Build RAG prompt and response format together.
     
     Returns:
         tuple: (prompt, response_format)
     """
-    rag_prompt = _build_rag_prompt(question, search_results)
+    rag_prompt = _build_rag_prompt(question, search_results, prompt_lang=prompt_lang)
     
     rag_schema = {
         "type": "object",

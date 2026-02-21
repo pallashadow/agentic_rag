@@ -74,6 +74,10 @@ jobs:
             echo "ELASTIC_API_KEY=${{ secrets.ELASTIC_API_KEY }}"
             echo "API_AUTH_TOKEN=${{ secrets.API_AUTH_TOKEN }}"
             echo "CORS_ALLOW_ORIGINS=${{ secrets.CORS_ALLOW_ORIGINS }}"
+            echo "LANGSMITH_API_KEY=${{ secrets.LANGSMITH_API_KEY }}"
+            echo "LANGSMITH_TRACING=true"
+            echo "LANGSMITH_PROJECT=${{ secrets.LANGSMITH_PROJECT }}"
+            echo "LANGSMITH_ENDPOINT=https://api.smith.langchain.com"
           } > .env
 
       - name: Deploy via deploy.sh

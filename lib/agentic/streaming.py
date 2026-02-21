@@ -11,6 +11,7 @@ if TYPE_CHECKING:
 async def agentic_rag_stream(
     graph: "CompiledGraph",
     initial_state: AgentState,
+    config: Dict[str, Any] = None,
 ) -> AsyncGenerator[Dict[str, Any], None]:
     """
     Stream Agentic RAG workflow execution using LangGraph's native astream().
@@ -41,6 +42,7 @@ async def agentic_rag_stream(
         async for chunk in graph.astream(
             streaming_state,
             stream_mode=["updates", "custom"],
+            config=config,
         ):
             # Handle different stream modes
             # When multiple modes are specified, chunks come as tuples (mode, data)
@@ -133,6 +135,10 @@ async def agentic_rag_stream(
                 "historical_search_ops": final_state.get("historical_search_ops", []),
                 "query_type": final_state.get("query_type", ""),
                 "search_count": final_state.get("search_count", 0),
+                "chunk_index": final_state.get("chunk_index", ""),
+                "title_index": final_state.get("title_index", ""),
+                "query_lang": final_state.get("query_lang", "zh"),
+                "doc_lang": final_state.get("doc_lang", "zh"),
             }
         }
         

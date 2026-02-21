@@ -1,0 +1,26 @@
+schema_version: 1
+id: query_expansion
+version: 0.1.0
+
+meta:
+  title: Query expansion prompt
+  owner: lib.rag
+  purpose: >
+    Expand user input into concise search queries for retrieval.
+
+body:
+  template: |-
+    Infer the user's intent and provide more specific search queries in concise form.
+    Example:
+    User question: How can one become a better person
+    Expansion: What moral qualities should a person develop, and how to cultivate them
+    Generate {k} different expanded queries.
+    User's previous Q&A history: {query_context}
+    Current user query: {query}
+    {cross_lang_section}
+
+    Please use the expand_queries tool for query expansion.
+
+cross_lang:
+  template: |-
+    IMPORTANT: The documents to be searched are in language "{doc_lang}" (e.g. en=English, zh=Chinese). The user query above may be in "{query_lang}". You must output all expanded queries in "{doc_lang}" only, so that they match the document language for retrieval. If the user asked in another language, translate or rephrase the expanded queries into {doc_lang}.

@@ -6,6 +6,22 @@ Gettr: [@pannixilin1](https://gettr.com/user/pannixilin1)
 github: https://github.com/pallashadow/agentic_rag
 frontend: https://pallashadow.github.io/agentic_rag/agentic.html
 
+Tech stack: 
+- **Backend Framework**: FastAPI (Python web framework)
+- **LLM Integration**: LiteLLM (with fallback support for GPT-4o-mini and Gemini 2.0 Flash)
+- **Agentic Workflow**: LangGraph (for building stateful agent workflows)
+- **Search Engine**: Elasticsearch Serverless
+- **Text Processing**: LangChain text splitters
+- **Data Processing**: Python 3.11+, Jupyter Notebooks
+- **Web Scraping**: BeautifulSoup4
+- **PDF Processing**: PyPDF
+- **Frontend**: Static HTML/JavaScript (hosted on GitHub Pages)
+- **Deployment**: Google Cloud Functions (2nd gen), Terraform (optional IaC)
+- **Protocol**: MCP (Model Context Protocol) for external integrations
+- **Function Calling**: Native LLM function calling via LiteLLM (replaces JSON Schema structured outputs for better reliability)
+- **Skills System**: Agent-native cognitive capability layer where LLMs can dynamically select and execute search skills (general_search, doc_search, neighbour_search)
+- **Observability**: LangSmith integration for tracing API requests, LangGraph execution paths, and LLM calls with metadata and fallback tracking
+
 
 
 ## Installation
@@ -19,7 +35,12 @@ frontend: https://pallashadow.github.io/agentic_rag/agentic.html
      - `ELASTIC_URL`: Elasticsearch server URL
      - `ELASTIC_API_KEY`: Elasticsearch API key
 3. Set up Elasticsearch: The project uses Elasticsearch Serverless for document indexing and search
-4. Prepare data: Run one of the notebooks in `scripts/` (e.g. `scripts/data_prepare_*.ipynb`) to download and process the data
+4. (Optional) Set up LangSmith observability:
+   - `LANGSMITH_API_KEY`: LangSmith API key (get from https://smith.langchain.com)
+   - `LANGSMITH_TRACING`: Set to `"true"` to enable tracing
+   - `LANGSMITH_PROJECT`: Project name (use different projects for dev/staging/prod, e.g., `chatbot-milesguo-dev`)
+   - `LANGSMITH_ENDPOINT`: LangSmith API endpoint (default: `https://api.smith.langchain.com`)
+5. Prepare data: Run one of the notebooks in `scripts/` (e.g. `scripts/data_prepare_*.ipynb`) to download and process the data
 
 Dependency management note: this project uses `pyproject.toml` + `poetry.lock`. `requirements.txt` is not maintained.
 
@@ -49,6 +70,27 @@ For detailed technical documentation about the RAG algorithm, workflow, document
 ### Agentic RAG
 
 The project also includes an **Agentic RAG Pipeline** built with LangGraph that intelligently routes queries through different processing paths with iterative answer refinement. For detailed documentation about the agentic workflow, nodes, routing functions, and state management, see [docs/README_AGENTIC.md](docs/README_AGENTIC.md).
+
+**Key Features:**
+
+- **Function Calling**: The agentic workflow uses native LLM function calling (via LiteLLM) instead of JSON Schema structured outputs. This provides better reliability and automatic function call handling. Function calling is used in:
+  - `entry_llm_node`: Classifies user queries and generates expanded queries
+  - `reply_validation_node`: Validates answers and plans search operations
+  - Query expansion: Dynamically expands short queries for better search coverage
+
+- **Skills System**: The system implements an agent-native cognitive capability layer where skills are LLM-visible capabilities that can be dynamically selected and executed:
+  - **general_search**: Semantic search with query expansion and two-step retrieval
+  - **doc_search**: Search within a specific document
+  - **neighbour_search**: Search neighboring chunks around a specific chunk
+  - Skills export OpenAI-compatible tool schemas for LLM function calling
+  - Skills are registered in `SkillRegistry` and can be extended with new capabilities
+  - The LLM selects appropriate skills based on the query context and reasoning
+
+- **LangSmith Observability**: When enabled, LangSmith provides comprehensive tracing for:
+  - API request-level traces (`/chatbot`, `/agentic_rag`, streaming endpoints)
+  - LangGraph execution paths (node loops, retries, iterations)
+  - LiteLLM model calls (model name, fallback path, latency, token usage)
+  - Production troubleshooting metadata (query type, search count, endpoint, version)
 
 ## Deployment
 
@@ -123,9 +165,14 @@ project_root/
     app_logger.py              # Logging utilities
 
   prompts/                     # YAML prompts used by the runtime
-    entry_prompt.yaml
-    rag.yaml
-    agentic_prompt.yaml
+    zh/                        # Chinese prompts
+      entry_prompt.yaml
+      rag.yaml
+      agentic_prompt.yaml
+    en/                        # English prompts
+      entry_prompt.yaml
+      rag.yaml
+      agentic_prompt.yaml
 
   docs/                        # Documentation
     README_RAG.md

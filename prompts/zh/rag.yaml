@@ -43,5 +43,3 @@ body:
     {search_results_txt}
 
   prompt_after: ""
-
-

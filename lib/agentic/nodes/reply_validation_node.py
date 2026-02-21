@@ -84,6 +84,7 @@ async def reply_validation_node(state: AgentState, skill_registry: SkillRegistry
     updates historical queries to track all search attempts.
     """
     agentic_config = state.get("agentic_config", {})
+    doc_lang = state.get("doc_lang", "zh")
     max_iter = agentic_config.get("max_iter", 3)
     search_count = state.get("search_count", 0)
     search_results = state.get("search_results", [])
@@ -103,12 +104,16 @@ async def reply_validation_node(state: AgentState, skill_registry: SkillRegistry
         search_results_txt = json.dumps(search_results, ensure_ascii=False)
         prompt_agentic = render_prompt(
             "agentic_prompt.yaml",
+            prompt_lang=doc_lang,
             question=question,
             historical_search_ops=historical_search_ops,
             search_results_txt=search_results_txt,
             answer=answer,
         )
-        prompt_agentic += "\n\n请使用 validate_and_refine 工具进行评估。"
+        if doc_lang == "zh":
+            prompt_agentic += "\n\n请使用 validate_and_refine 工具进行评估。"
+        else:
+            prompt_agentic += "\n\nPlease use the validate_and_refine tool for evaluation."
         
         # Define validation tool and skill tools.
         validation_tool = build_validation_tool()
@@ -144,7 +149,12 @@ async def reply_validation_node(state: AgentState, skill_registry: SkillRegistry
             else:
                 # Fallback to structured output when model returns no validation tool call.
                 _, agentic_response_format = get_agentic_prompt_and_format(
-                    question, answer, search_results, historical_search_ops, agentic_config
+                    question,
+                    answer,
+                    search_results,
+                    historical_search_ops,
+                    agentic_config,
+                    prompt_lang=doc_lang,
                 )
                 llm_output = await call_llm_with_fallback(
                     prompt_agentic,
@@ -157,7 +167,14 @@ async def reply_validation_node(state: AgentState, skill_registry: SkillRegistry
         except Exception as e:
             # Fallback to structured output on error
             logger.warning(f"Function calling failed, falling back to structured output: {e}")
-            _, agentic_response_format = get_agentic_prompt_and_format(question, answer, search_results, historical_search_ops, agentic_config)
+            _, agentic_response_format = get_agentic_prompt_and_format(
+                question,
+                answer,
+                search_results,
+                historical_search_ops,
+                agentic_config,
+                prompt_lang=doc_lang,
+            )
             llm_output = await call_llm_with_fallback(
                 prompt_agentic,
                 model_name="gemini",

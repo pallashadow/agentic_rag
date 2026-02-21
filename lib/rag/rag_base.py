@@ -7,6 +7,7 @@ from lib.search.elastic_mix import ElasticMix
 from lib.mcp import SearchService, GeneralSearchRequest, NaiveSearchRequest
 from lib.rag.query_expand import QueryExpander
 from lib.rag.rag_prompt import build_rag_prompt, PROMPT_BASE
+from lib.language_detect import detect_query_lang
 from lib.llm.litellm_api import call_llm_with_fallback, call_llm_stream_with_fallback
 from lib.app_logger import get_logger
 
@@ -31,6 +32,8 @@ class RAGBase:
                      title_k:int=3, 
                      chunk_k:int=10, 
                      query_expand_k:int=0,
+                     doc_lang: str = "zh",
+                     query_lang: str = "zh",
         ) -> tuple[list[dict], list[str]]:
         query_expand_k = min(query_expand_k, self.max_query_expand_k)
         chunk_k = min(chunk_k, self.max_chunk_k)
@@ -40,9 +43,12 @@ class RAGBase:
         expanded_query = []
         if query_expand_k > 0:
             expanded_query = await self.query_expander.expand(
-                query, 
-                query_context, 
-                k=query_expand_k
+                query,
+                query_context,
+                k=query_expand_k,
+                prompt_lang=doc_lang,
+                doc_lang=doc_lang,
+                query_lang=query_lang,
             )
             logger.info("Expanded Query: %s", expanded_query)
             query_list += expanded_query
@@ -103,20 +109,33 @@ class RAGBase:
                    chunk_k:int=10, 
                    query_expand_k:int=1,
                    prompt_before:str=None,
-                   prompt_after:str=None
+                   prompt_after:str=None,
+                   query_lang: str = "zh",
+                   doc_lang: str = "zh",
     ) -> tuple[str, list[dict], str]:
+        if not query_lang:
+            query_lang = detect_query_lang(query)
         # step 1: search
         search_results, expanded_queries = await self.search(
-            query, 
+            query,
             chunk_index,
-            query_context, 
-            title_k=title_k, 
-            chunk_k=chunk_k, 
+            query_context,
+            title_k=title_k,
+            chunk_k=chunk_k,
             query_expand_k=query_expand_k,
+            doc_lang=doc_lang,
+            query_lang=query_lang,
         )
         
         # step 2: generate prompt
-        prompt = build_rag_prompt(query, search_results, query_context, prompt_before, prompt_after)
+        prompt = build_rag_prompt(
+            query,
+            search_results,
+            query_context,
+            prompt_before,
+            prompt_after,
+            prompt_lang=query_lang,
+        )
         
         # step 3: call LLM
         llm_response = await call_llm_with_fallback(prompt, model_name="gpt")
@@ -147,7 +166,9 @@ class RAGBase:
                          chunk_k:int=10, 
                          query_expand_k:int=1,
                          prompt_before:str=None,
-                         prompt_after:str=None
+                         prompt_after:str=None,
+                         query_lang: str = "zh",
+                         doc_lang: str = "zh",
     ):
         """
         Stream RAG chat response as async generator.
@@ -157,18 +178,29 @@ class RAGBase:
                 - type: "search" | "content" | "metadata" | "done"
                 - data: chunk data (str for content, dict for others)
         """
+        if not query_lang:
+            query_lang = detect_query_lang(query)
         # step 1: search (don't yield results, they're too large)
         search_results, expanded_queries = await self.search(
-            query, 
+            query,
             chunk_index,
-            query_context, 
-            title_k=title_k, 
-            chunk_k=chunk_k, 
+            query_context,
+            title_k=title_k,
+            chunk_k=chunk_k,
             query_expand_k=query_expand_k,
+            doc_lang=doc_lang,
+            query_lang=query_lang,
         )
         
         # step 2: generate prompt
-        prompt = build_rag_prompt(query, search_results, query_context, prompt_before, prompt_after)
+        prompt = build_rag_prompt(
+            query,
+            search_results,
+            query_context,
+            prompt_before,
+            prompt_after,
+            prompt_lang=query_lang,
+        )
         
         # step 3: stream LLM response only (don't yield search results or metadata immediately)
         full_content = ""

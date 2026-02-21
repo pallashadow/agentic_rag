@@ -1,0 +1,26 @@
+schema_version: 1
+id: query_expansion
+version: 0.1.0
+
+meta:
+  title: Query expansion prompt
+  owner: lib.rag
+  purpose: >
+    Expand user input into concise search queries for retrieval.
+
+body:
+  template: |-
+    猜测用户的提问意图，并给出一个更具体的查询问句，15个字以内。
+    例如：
+    用户提问：如何做好人
+    扩展：一个人应具备哪些道德品格，如何加以实践与培养
+    扩展：{k}个不同的查询问句
+    以下是用户之前的问答记录：{query_context}
+    用户当前提问：{query}
+    {cross_lang_section}
+
+    请使用 expand_queries 工具进行查询扩展。
+
+cross_lang:
+  template: |-
+    重要：待检索文档的语言为「{doc_lang}」（en=英文，zh=中文），用户提问可能为「{query_lang}」。你必须仅使用「{doc_lang}」输出所有扩展查询，以便与文档语言一致。若用户用其他语言提问，请将扩展查询翻译或改写成 {doc_lang}。

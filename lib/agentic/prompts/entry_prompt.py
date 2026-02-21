@@ -1,7 +1,8 @@
 def get_entry_prompt_and_format(
     question: str, 
     query_context: list[str], 
-    agentic_config: dict
+    agentic_config: dict,
+    prompt_lang: str | None = None,
 ) -> tuple[str, dict]:
     """
     Build entry prompt and response format together.
@@ -13,6 +14,7 @@ def get_entry_prompt_and_format(
 
     prompt_entry = render_prompt(
         "entry_prompt.yaml",
+        prompt_lang=prompt_lang,
         question=question,
         query_context=query_context,
     )

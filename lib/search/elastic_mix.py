@@ -99,13 +99,15 @@ class ElasticMix:
         )->list[dict]:
         """
         Search using both 1-step and 2-step approaches.
+        Split chunk budget by query count so total search effort scales with
+        expansion size instead of multiplying by the number of expanded queries.
         """
         tasks = []
-        len_query_list = len(query_list)
-        chunk_k = max(1, chunk_k // len_query_list)
-        tasks += [self.search_naive(query, chunk_index, chunk_k=chunk_k) 
+        len_query_list = max(1, len(query_list))
+        k_per_task = max(1, chunk_k // len_query_list // 2)
+        tasks += [self.search_naive(query, chunk_index, chunk_k=k_per_task) 
             for query in query_list]
-        tasks += [self.search_2steps(query, title_index, chunk_index, title_k=title_k, chunk_k=chunk_k)
+        tasks += [self.search_2steps(query, title_index, chunk_index, title_k=title_k, chunk_k=k_per_task)
             for query in query_list]
         results_list = await asyncio.gather(*tasks)
         results = [item for sublist in results_list for item in sublist]
@@ -145,6 +147,9 @@ class ElasticMix:
         results_list = await asyncio.gather(*tasks)
         search_results = [item for sublist in results_list for item in sublist]
         search_results = self.postprocess_search_results(search_results)
+        # Cap to chunk_k so caller gets at most the requested number
+        if len(search_results) > chunk_k:
+            search_results = search_results[:chunk_k]
         return search_results
     
     async def search(self, 

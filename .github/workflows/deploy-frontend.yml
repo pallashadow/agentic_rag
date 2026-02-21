@@ -37,6 +37,15 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Build frontend TypeScript
+        run: |
+          npx -y -p typescript tsc -p frontend/tsconfig.json
       
       - name: Inject build timestamp
         run: |
@@ -44,6 +53,10 @@ jobs:
           BUILD_SHA=$(git rev-parse --short HEAD)
           sed -i "s#<!-- BUILD_INFO -->#<!-- Build: $BUILD_TIME | SHA: $BUILD_SHA -->#g" frontend/rag.html
           sed -i "s#<!-- BUILD_INFO -->#<!-- Build: $BUILD_TIME | SHA: $BUILD_SHA -->#g" frontend/agentic.html
+
+      - name: Sync chunk index guide
+        run: |
+          cp docs/README_INDEX.md frontend/README_INDEX.md
       
       - name: Setup Pages
         uses: actions/configure-pages@v4

@@ -26,12 +26,25 @@ class ElasticChunk(BaseModel):
 
 class ElasticWriteClientChunks(ElasticWriteClientBase):
     def __init__(self, 
-                 chunk_index_name="miles_guo", 
-                 chunks_path="./data/data_miles/chunks/",
-                 contexts_path="./data/data_miles/contexts/",
-                 title_path="./data/data_miles/titles.json",
-                 summaries_path="./data/data_miles/summaries.json",
+                 chunk_index_name:str, 
+                 chunks_path:str,
+                 contexts_path:str=None,
+                 title_path:str=None,
+                 summaries_path:str=None,
                  ):
+        """
+        Initialize Elasticsearch client for indexing document chunks.
+        
+        Args:
+            chunk_index_name: Name of the Elasticsearch index for chunks
+            chunks_path: Path to directory containing chunk text files
+            contexts_path: Optional path to directory containing context files. 
+                          If None, context field will be empty for all chunks.
+            title_path: Optional path to JSON file containing document titles.
+                       If None, doc_title field will be empty for all chunks.
+            summaries_path: Optional path to JSON file containing document summaries.
+                           If None, doc_summary field will be empty for all chunks.
+        """
         super().__init__(chunk_index_name)
         self.chunks_path = chunks_path
         self.contexts_path = contexts_path
@@ -62,12 +75,34 @@ class ElasticWriteClientChunks(ElasticWriteClientBase):
         return doc_id, chunk_id
     
     def _read_chunk_file(self, file: str) -> str:
-        """Read chunk text from file."""
+        """
+        Read chunk text content from a file.
+        
+        Args:
+            file: Path to the chunk text file
+        
+        Returns:
+            str: Content of the chunk file
+        """
         with open(file, "r", encoding="utf-8") as f:
             return f.read()
     
     def _read_context_file(self, doc_id: str, chunk_id: str) -> str:
-        """Read context text from file, returns empty string if not found."""
+        """
+        Read context text from file for a specific chunk.
+        
+        Returns empty string if contexts_path is None, file not found, or read fails.
+        Context files are expected to follow the pattern: {doc_id}_{chunk_id}.txt
+        
+        Args:
+            doc_id: Document ID
+            chunk_id: Chunk ID
+        
+        Returns:
+            str: Context text content, or empty string if unavailable
+        """
+        if self.contexts_path is None:
+            return ""
         context_file = os.path.join(self.contexts_path, f"{doc_id}_{chunk_id}.txt")
         try:
             with open(context_file, "r", encoding="utf-8") as f:
@@ -76,18 +111,33 @@ class ElasticWriteClientChunks(ElasticWriteClientBase):
             return ""
     
     def _get_document_metadata(self, doc_id: str) -> tuple[str, str]:
-        """Get title and summary for a document, returns empty strings if not found."""
-        title_txt = self.titles.get(doc_id) or ""
-        if not title_txt:
-            print(f"Title not found for document {doc_id}")
+        """
+        Retrieve title and summary metadata for a document.
         
-        summary_txt = self.summaries.get(doc_id) or ""
-        if not summary_txt:
-            print(f"Summary not found for document {doc_id}")
+        Returns empty strings if corresponding paths are None or document not found.
+        Prints warning messages when metadata is missing for a document.
         
-        # Ensure we return strings, not None (handle case where dict value is None)
-        title_txt = str(title_txt) if title_txt is not None else ""
-        summary_txt = str(summary_txt) if summary_txt is not None else ""
+        Args:
+            doc_id: Document ID to look up
+        
+        Returns:
+            tuple[str, str]: (title, summary) pair, both may be empty strings
+        """
+        if self.title_path is None:
+            title_txt = ""
+        else:
+            title_txt = self.titles.get(doc_id) or ""
+            if not title_txt:
+                print(f"Title not found for document {doc_id}")
+            title_txt = str(title_txt) if title_txt is not None else ""
+        
+        if self.summaries_path is None:
+            summary_txt = ""
+        else:
+            summary_txt = self.summaries.get(doc_id) or ""
+            if not summary_txt:
+                print(f"Summary not found for document {doc_id}")
+            summary_txt = str(summary_txt) if summary_txt is not None else ""
         
         return title_txt, summary_txt
     
@@ -96,10 +146,35 @@ class ElasticWriteClientChunks(ElasticWriteClientBase):
                       limit=None, 
                       skip_existing=True
         ):
-        with open(self.summaries_path, "r", encoding="utf-8") as f:
-            self.summaries = json.load(f)
-        with open(self.title_path, "r", encoding="utf-8") as f:
-            self.titles = json.load(f)
+        """
+        Insert document chunks from files into Elasticsearch index.
+        
+        Processes chunk files from chunks_path directory, optionally loading context,
+        title, and summary metadata. Chunks are inserted in batches for efficiency.
+        Only includes fields for which corresponding paths were provided during initialization.
+        
+        Args:
+            batch_size: Number of documents to insert per batch (default: 1000)
+            limit: Maximum number of chunk files to process. If None, processes all files.
+            skip_existing: If True, skips chunks that already exist in the index.
+        
+        Note:
+            Chunk filenames must follow the pattern: {doc_id}_{chunk_id}.txt
+            Supported file extensions: .txt, .md, .markdown, .text
+        """
+        # Load summaries if summaries_path is provided
+        if self.summaries_path is not None:
+            with open(self.summaries_path, "r", encoding="utf-8") as f:
+                self.summaries = json.load(f)
+        else:
+            self.summaries = {}
+        
+        # Load titles if title_path is provided
+        if self.title_path is not None:
+            with open(self.title_path, "r", encoding="utf-8") as f:
+                self.titles = json.load(f)
+        else:
+            self.titles = {}
             
         files = [os.path.join(self.chunks_path, x) for x in os.listdir(self.chunks_path)]
         # Filter out directories and allow text files (.txt, .md, etc.)
@@ -180,7 +255,20 @@ class ElasticWriteClientChunks(ElasticWriteClientBase):
                             summary_txt: str="", 
                             title_txt: str=""
     ):
-        """Insert a single chunk into Elasticsearch.
+        """
+        Insert a single chunk into Elasticsearch index.
+        
+        If chunk_id is None, automatically determines the next available chunk_id
+        by finding the maximum existing numeric chunk_id for the document and incrementing it.
+        If no chunks exist for the document, starts from "0".
+        
+        Args:
+            chunk_txt: Text content of the chunk
+            doc_id: Document ID (default: "system_doc1")
+            chunk_id: Chunk ID. If None, auto-generates next available chunk_id
+            context_txt: Optional context text for the chunk
+            summary_txt: Optional document summary
+            title_txt: Optional document title
         """
         if chunk_id is None:
             chunk_ids = self.get_chunk_ids_given_doc_id(doc_id)
@@ -209,6 +297,11 @@ class ElasticWriteClientChunks(ElasticWriteClientBase):
 
 class ElasticReadClientChunks(ElasticReadClientBase):
     def __init__(self):
+        """
+        Initialize Elasticsearch read client for searching document chunks.
+        
+        This client is used for querying the chunk index without write operations.
+        """
         super().__init__()
         
     async def get_neighbour_chunks(self, 

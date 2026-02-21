@@ -5,14 +5,15 @@ from typing import AsyncGenerator
 from fastapi import FastAPI, HTTPException, Depends, Query
 from fastapi.responses import StreamingResponse
 from dotenv import load_dotenv
-import asyncio
 from lib.rag.rag_base import RAGBase
 from lib.agentic.graph import AgenticGraph
-from lib.agentic.streaming import agentic_rag_stream
+from lib.index_mapping import get_index_meta
+from lib.language_detect import detect_query_lang
 from lib.app_logger import get_logger, setup_logging
 from lib.security import setup_cors, require_auth, require_rate_limit, global_exception_handler
-from lib.agentic.config import get_agent_state_default
 from lib.mcp import SearchService, SearchMCPServer
+from lib.api.chatbot_service import chatbot_core, chatbot_stream_core
+from lib.api.agentic_service import agentic_rag_core, agentic_rag_stream_core
 
 app = FastAPI()
 load_dotenv()
@@ -106,12 +107,16 @@ async def search(
     __: None = Depends(require_rate_limit),
 ):
     try:
+        doc_lang = get_index_meta(chunk_index)["doc_lang"]
+        query_lang = detect_query_lang(txt_query) or doc_lang
         search_results, expanded_query = await rag_base.search(
-            txt_query, 
+            txt_query,
             chunk_index,
-            title_k=title_k, 
-            chunk_k=chunk_k, 
+            title_k=title_k,
+            chunk_k=chunk_k,
             query_expand_k=query_expand_k,
+            doc_lang=doc_lang,
+            query_lang=query_lang,
         )
         return search_results
     except Exception as e:
@@ -131,17 +136,15 @@ async def chatbot(
     _: None = Depends(require_auth),
     __: None = Depends(require_rate_limit),
 ):
-    state1 = get_agent_state_default()
     try:
-        # Limit query_context to maximum 6 items
-        query_context = query_context[-4:]
-        result = await rag_base.chat(
-            txt_query, 
+        result = await chatbot_core(
+            rag_base,
+            txt_query,
             chunk_index,
-            query_context=query_context,
-            title_k=title_k, 
-            chunk_k=chunk_k,
-            query_expand_k=query_expand_k,
+            query_context,
+            title_k,
+            chunk_k,
+            query_expand_k,
         )
         return result
     except Exception as e:
@@ -162,15 +165,14 @@ async def chatbot_stream(
     __: None = Depends(require_rate_limit),
 ):
     """Stream chatbot response using Server-Sent Events (SSE)."""
-    query_context_limited = query_context[-4:] if query_context else []
-    
-    stream = rag_base.chat_stream(
+    stream = await chatbot_stream_core(
+        rag_base,
         txt_query,
         chunk_index,
-        query_context=query_context_limited,
-        title_k=title_k,
-        chunk_k=chunk_k,
-        query_expand_k=query_expand_k,
+        query_context,
+        title_k,
+        chunk_k,
+        query_expand_k,
     )
     
     return StreamingResponse(
@@ -195,23 +197,27 @@ async def agentic_rag(
     _: None = Depends(require_auth),
     __: None = Depends(require_rate_limit),
 ):
-    state1 = get_agent_state_default(chunk_index, 
-        title_k, 
-        chunk_k, 
-        max_iter=max_iter,
-        max_query_expand_k=query_expand_k, 
-    )
-    state1["question"] = txt_query
-    state1["query_context"] = query_context
-    agentic_result = await agentic_base.ainvoke(state1)
-    result = {
-            "content": agentic_result["answer"],
-            "search_results": agentic_result["search_results"],
-            "historical_search_ops": agentic_result["historical_search_ops"],
-            "query_type": agentic_result["query_type"],
-            "search_count": agentic_result["search_count"],
-        }
-    return result
+    try:
+        result = await agentic_rag_core(
+            agentic_base,
+            txt_query,
+            chunk_index,
+            query_context,
+            title_k,
+            chunk_k,
+            query_expand_k,
+            max_iter,
+        )
+        return result
+    except Exception as e:
+        logger.error("Error in agentic_rag: %s", e, exc_info=True, extra={
+            "txt_query": txt_query,
+            "title_k": title_k,
+            "chunk_k": chunk_k,
+            "query_expand_k": query_expand_k,
+            "max_iter": max_iter,
+        })
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 @app.get("/agentic_rag_stream")
 async def agentic_rag_stream_endpoint(
@@ -226,17 +232,16 @@ async def agentic_rag_stream_endpoint(
     __: None = Depends(require_rate_limit),
 ):
     """Stream agentic RAG response using Server-Sent Events (SSE)."""
-    state1 = get_agent_state_default(
+    stream = await agentic_rag_stream_core(
+        agentic_base,
+        txt_query,
         chunk_index,
+        query_context,
         title_k,
         chunk_k,
-        max_iter=max_iter,
-        max_query_expand_k=query_expand_k,
+        query_expand_k,
+        max_iter,
     )
-    state1["question"] = txt_query
-    state1["query_context"] = query_context[-4:] if query_context else []
-    
-    stream = agentic_rag_stream(agentic_base, state1)
     
     return StreamingResponse(
         wrap_stream_with_error_handling(

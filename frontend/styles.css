@@ -137,6 +137,7 @@ label {
 
 input[type="text"],
 input[type="number"],
+select,
 textarea {
   width: 100%;
   background: rgba(15, 23, 48, 0.65);
@@ -149,6 +150,7 @@ textarea {
 
 input[type="text"]:focus,
 input[type="number"]:focus,
+select:focus,
 textarea:focus {
   border-color: rgba(122, 162, 255, 0.6);
   box-shadow: 0 0 0 3px rgba(122, 162, 255, 0.15);
@@ -157,6 +159,7 @@ textarea:focus {
 
 input[type="text"]:hover,
 input[type="number"]:hover,
+select:hover,
 textarea:hover {
   border-color: rgba(255, 255, 255, 0.12);
 }
@@ -164,6 +167,14 @@ textarea:hover {
 textarea {
   min-height: 70px;
   resize: vertical;
+}
+
+.docPreview {
+  min-height: 180px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
 }
 
 .inline2 {

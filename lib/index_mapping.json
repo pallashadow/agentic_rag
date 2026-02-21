@@ -1,0 +1,22 @@
+{
+  "miles_guo": {
+    "title_index": "miles_guo_titles",
+    "doc_lang": "zh"
+  },
+  "lzj": {
+    "title_index": "lzj_titles",
+    "doc_lang": "zh"
+  },
+  "lxb": {
+    "title_index": "lxb_titles",
+    "doc_lang": "zh"
+  },
+  "mzd": {
+    "title_index": "mzd_titles",
+    "doc_lang": "zh"
+  },
+  "epstein9": {
+    "title_index": "epstein9_titles",
+    "doc_lang": "en"
+  }
+}

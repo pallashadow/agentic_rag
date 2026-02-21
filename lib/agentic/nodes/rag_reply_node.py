@@ -109,10 +109,16 @@ async def rag_reply_node(state: AgentState) -> AgentState:
     question = state.get("question", "")
     search_results = state.get("search_results", [])
     agentic_config = state.get("agentic_config", {})
+    query_lang = state.get("query_lang", "zh")
     enable_streaming = state.get("enable_streaming", False)
     
     # Get prompt and response format
-    prompt_rag, rag_response_format = get_rag_prompt_and_format(question, search_results, agentic_config)
+    prompt_rag, rag_response_format = get_rag_prompt_and_format(
+        question,
+        search_results,
+        agentic_config,
+        prompt_lang=query_lang,
+    )
     
     # Use streaming if enabled and writer is available
     if enable_streaming:

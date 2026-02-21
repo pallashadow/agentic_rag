@@ -1,5 +1,7 @@
 from typing import TypedDict, List, Any
 
+from lib.index_mapping import get_index_meta
+
 class SearchConfig(TypedDict):
     title_index: str
     chunk_index: str
@@ -15,6 +17,10 @@ class AgentState(TypedDict, total=False):
     question: str # init user query
     query_context: List[str] # query context for RAG search
     answer: str # final answer
+    chunk_index: str
+    title_index: str
+    query_lang: str
+    doc_lang: str
     query_type: str  # "greeting", "insult", "unclear", "need_rag"
     historical_search_ops: List[dict[str, Any]] # all search ops / skill calls that have been used
     search_ops: List[dict[str, Any]] # legacy search ops for backward compatibility
@@ -36,12 +42,20 @@ def get_agent_state_default(
     """
     Get default AgentState dictionary with all fields initialized.
     TypedDict cannot be instantiated like a class, so we return a plain dict.
+    query_lang is detected in entry_llm_node and written to state.
     """
-    title_index = f"{chunk_index}_titles"
+    index_meta = get_index_meta(chunk_index)
+    title_index = index_meta["title_index"]
+    doc_lang = index_meta["doc_lang"]
+    
     return {
         "question": "",
         "query_context": [],
         "answer": "",
+        "chunk_index": chunk_index,
+        "title_index": title_index,
+        "query_lang": "zh",
+        "doc_lang": doc_lang,
         "query_type": "",
         "historical_search_ops": [],
         "search_ops": [],

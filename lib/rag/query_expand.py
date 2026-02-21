@@ -1,4 +1,3 @@
-import keyword
 from lib.llm.litellm_api import call_llm_with_fallback, call_llm_with_tools
 from lib.app_logger import get_logger
 import json
@@ -12,19 +11,29 @@ class QueryExpander:
     async def expand(self, 
                      query:str, 
                      query_context:list[str]=[], 
-                     k:int=1
+                     k:int=1,
+                     prompt_lang: str = "zh",
+                     doc_lang: str | None = None,
+                     query_lang: str | None = None,
     ) -> list[str]:
-        prompt = f"""
-        猜测用户的提问意图，并给出一个更具体的查询问句，15个字以内。
-        例如：
-        用户提问：如何做好人
-        扩展：一个人应具备哪些道德品格，如何加以实践与培养
-        扩展：{k}个不同的查询问句
-        以下是用户之前的问答记录：{query_context}
-        用户当前提问：{query}
-        
-        请使用 expand_queries 工具进行查询扩展。
-        """
+        from lib.agentic.prompts.prompt_loader import load_prompt_template, render_prompt
+        doc_lang = doc_lang or prompt_lang
+        query_lang = query_lang or prompt_lang
+        # When doc_lang != query_lang, append cross_lang instruction so expanded queries are in doc_lang
+        cross_lang_section = ""
+        if doc_lang != query_lang:
+            tmpl = load_prompt_template("query_expand.yaml", prompt_lang=prompt_lang)
+            cross_lang_block = (tmpl.get("cross_lang") or {}).get("template")
+            if isinstance(cross_lang_block, str) and cross_lang_block.strip():
+                cross_lang_section = cross_lang_block.format(doc_lang=doc_lang, query_lang=query_lang)
+        prompt = render_prompt(
+            "query_expand.yaml",
+            prompt_lang=prompt_lang,
+            k=k,
+            query_context=query_context,
+            query=query,
+            cross_lang_section=cross_lang_section,
+        )
         
         # Define tools for query expansion
         tools = [

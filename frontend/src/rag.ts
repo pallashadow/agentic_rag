@@ -34,6 +34,26 @@ let userInput: HTMLTextAreaElement;
 let sendBtn: HTMLButtonElement;
 let cancelBtn: HTMLButtonElement;
 let errorLine: HTMLElement;
+let chunkIndexGuide: HTMLTextAreaElement;
+
+const CHUNK_INDEX_GUIDE_FALLBACK = "Failed to load README_INDEX.md.";
+
+async function loadChunkIndexGuide(): Promise<void> {
+  if (!chunkIndexGuide) return;
+  const paths = ["README_INDEX.md", "./README_INDEX.md"];
+  for (const path of paths) {
+    try {
+      const res = await fetch(path, { cache: "no-store" });
+      if (!res.ok) continue;
+      const text = await res.text();
+      chunkIndexGuide.value = text.trim() || CHUNK_INDEX_GUIDE_FALLBACK;
+      return;
+    } catch {
+      // Ignore and try next path.
+    }
+  }
+  chunkIndexGuide.value = CHUNK_INDEX_GUIDE_FALLBACK;
+}
 
 // Render expandable source diagnostics so users can verify where each answer fragment came from.
 function renderSourcesDetails(
@@ -717,6 +737,7 @@ userInput = document.getElementById("userInput") as HTMLTextAreaElement;
 sendBtn = document.getElementById("sendBtn") as HTMLButtonElement;
 cancelBtn = document.getElementById("cancelBtn") as HTMLButtonElement;
 errorLine = document.getElementById("errorLine") as HTMLElement;
+chunkIndexGuide = document.getElementById("chunkIndexGuide") as HTMLTextAreaElement;
 
 // Keep numeric settings in a safe backend-supported range.
 bindClampedNumberInput(chunkK, 1, 12);
@@ -787,6 +808,7 @@ applySettingsToUI(loadSettings());
 setStatus(statusPill, "Idle");
 // Auto-fetch auth token from backend on page load
 fetchAuthTokenFromBackend(cloudBase.value);
+loadChunkIndexGuide();
 addMessage({
   role: "assistant",
   text: "请提问",

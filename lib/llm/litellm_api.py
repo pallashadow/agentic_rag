@@ -7,6 +7,13 @@ import os
 import logging
 from litellm import Router
 import json
+import time
+from lib.observability.langsmith import (
+    langsmith_enabled,
+    traced,
+    create_trace_metadata,
+    update_trace_with_token_usage,
+)
 nest_asyncio.apply()
 import tempfile
 litellm.enable_json_schema_validation=True
@@ -65,11 +72,25 @@ async def call_llm_with_fallback(str1,
     )
     return result
 
+@traced(run_type="llm", name="call_llm")
 async def call_llm(str1, 
                    router=None, 
                    model_name="openai/gpt-4o", 
                    response_format=None, 
                    kwargs={}):
+    start_time = time.time()
+    
+    # Add metadata if LangSmith is enabled
+    if langsmith_enabled():
+        try:
+            response_format_type = response_format.get("type") if response_format else None
+            metadata = create_trace_metadata(
+                model_name=model_name,
+                response_format=response_format_type,
+            )
+        except Exception:
+            pass
+    
     acompletion1 = router.acompletion if router else acompletion
     response = await acompletion1(
         model=model_name,
@@ -77,6 +98,8 @@ async def call_llm(str1,
         response_format=response_format, 
         **kwargs, 
     )
+    
+    latency = time.time() - start_time
     
     x = response.choices[0].message.content
     
@@ -87,9 +110,35 @@ async def call_llm(str1,
             return json.loads(x)
         except (json.JSONDecodeError, TypeError) as e:
             logging.warning(f"Failed to parse structured output as JSON: {e}. Returning raw string.")
+    
+    # Record latency and token usage if available
+    if langsmith_enabled():
+        try:
+            prompt_tokens = None
+            completion_tokens = None
+            total_tokens = None
+            if hasattr(response, "usage"):
+                if hasattr(response.usage, "prompt_tokens"):
+                    prompt_tokens = response.usage.prompt_tokens
+                if hasattr(response.usage, "completion_tokens"):
+                    completion_tokens = response.usage.completion_tokens
+                if hasattr(response.usage, "total_tokens"):
+                    total_tokens = response.usage.total_tokens
+            
+            # Update LangSmith trace with token usage
+            # This ensures token counts are properly tracked in LangSmith UI
+            update_trace_with_token_usage(
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
+                total_tokens=total_tokens,
+                latency=latency,
+            )
+        except Exception as e:
+            logging.debug(f"Failed to record token usage to LangSmith: {e}")
             
     return x
 
+@traced(run_type="llm", name="call_llm_stream")
 async def call_llm_stream(str1, 
                          router=None, 
                          model_name="openai/gpt-4o", 
@@ -101,6 +150,19 @@ async def call_llm_stream(str1,
     Yields:
         str: Content chunks from the LLM stream
     """
+    start_time = time.time()
+    
+    # Add metadata if LangSmith is enabled
+    if langsmith_enabled():
+        try:
+            response_format_type = response_format.get("type") if response_format else None
+            metadata = create_trace_metadata(
+                model_name=model_name,
+                response_format=response_format_type,
+            )
+        except Exception:
+            pass
+    
     acompletion1 = router.acompletion if router else acompletion
     stream = await acompletion1(
         model=model_name,
@@ -115,7 +177,16 @@ async def call_llm_stream(str1,
             delta = chunk.choices[0].delta
             if delta and delta.content:
                 yield delta.content
+    
+    # Record latency
+    if langsmith_enabled():
+        try:
+            latency = time.time() - start_time
+            metadata = create_trace_metadata(latency=latency)
+        except Exception:
+            pass
 
+@traced(run_type="llm", name="call_llm_stream_with_fallback")
 async def call_llm_stream_with_fallback(str1, 
                                         model_name="gpt", 
                                         response_format=None):
@@ -127,6 +198,18 @@ async def call_llm_stream_with_fallback(str1,
     """
     router = get_litellm_fallback_router()
     kwargs = {"temperature": 0.0}
+    
+    # Add metadata if LangSmith is enabled
+    if langsmith_enabled():
+        try:
+            response_format_type = response_format.get("type") if response_format else None
+            metadata = create_trace_metadata(
+                model_name=model_name,
+                response_format=response_format_type,
+                fallback_triggered=False,
+            )
+        except Exception:
+            pass
     
     try:
         async for chunk in call_llm_stream(
@@ -141,6 +224,17 @@ async def call_llm_stream_with_fallback(str1,
         # If primary model fails, try fallback
         fallback_model = "gemini" if model_name == "gpt" else "gpt"
         logging.warning(f"Primary model {model_name} failed, trying fallback {fallback_model}: {e}")
+        
+        # Record fallback in trace
+        if langsmith_enabled():
+            try:
+                metadata = create_trace_metadata(
+                    fallback_triggered=True,
+                    fallback_model=fallback_model,
+                )
+            except Exception:
+                pass
+        
         try:
             async for chunk in call_llm_stream(
                 str1, 
@@ -154,6 +248,7 @@ async def call_llm_stream_with_fallback(str1,
             logging.error(f"Both models failed: {fallback_error}")
             raise
 
+@traced(run_type="llm", name="call_llm_with_tools")
 async def call_llm_with_tools(
     prompt: str,
     tools: list[dict],
@@ -172,6 +267,19 @@ async def call_llm_with_tools(
     Returns:
         dict: Contains 'content' and 'tool_calls' (if any)
     """
+    start_time = time.time()
+    
+    # Add metadata if LangSmith is enabled
+    if langsmith_enabled():
+        try:
+            metadata = create_trace_metadata(
+                model_name=model_name,
+                tool_count=len(tools) if tools else 0,
+                tool_choice=tool_choice,
+            )
+        except Exception:
+            pass
+    
     router = get_litellm_fallback_router()
     
     messages = [{"role": "user", "content": prompt}]
@@ -184,6 +292,8 @@ async def call_llm_with_tools(
         tool_choice=tool_choice,
         temperature=0.0
     )
+    
+    latency = time.time() - start_time
     
     message = response.choices[0].message
     
@@ -202,5 +312,29 @@ async def call_llm_with_tools(
                     "arguments": tool_call.function.arguments
                 }
             })
+    
+    # Record latency and token usage if available
+    if langsmith_enabled():
+        try:
+            prompt_tokens = None
+            completion_tokens = None
+            total_tokens = None
+            if hasattr(response, "usage"):
+                if hasattr(response.usage, "prompt_tokens"):
+                    prompt_tokens = response.usage.prompt_tokens
+                if hasattr(response.usage, "completion_tokens"):
+                    completion_tokens = response.usage.completion_tokens
+                if hasattr(response.usage, "total_tokens"):
+                    total_tokens = response.usage.total_tokens
+            
+            # Update LangSmith trace with token usage
+            update_trace_with_token_usage(
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
+                total_tokens=total_tokens,
+                latency=latency,
+            )
+        except Exception as e:
+            logging.debug(f"Failed to record token usage to LangSmith: {e}")
     
     return result
