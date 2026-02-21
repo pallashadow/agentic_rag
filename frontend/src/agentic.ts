@@ -690,14 +690,22 @@ async function handleStreamingResponse(
       if (done) break;
 
       buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split("\n\n");
-      buffer = lines.pop() || ""; // Keep incomplete line in buffer
+      // Be tolerant of both LF and CRLF separators; some gateways normalize SSE with \r\n.
+      const events = buffer.split(/\r?\n\r?\n/);
+      buffer = events.pop() || ""; // Keep incomplete event in buffer
 
-      for (const line of lines) {
-        if (!line.trim()) continue; // Skip empty lines
-        if (line.startsWith("data: ")) {
+      for (const eventBlock of events) {
+        if (!eventBlock.trim()) continue; // Skip empty events
+        const dataLines = eventBlock
+          .split(/\r?\n/)
+          .filter((line) => line.startsWith("data:"));
+        if (dataLines.length > 0) {
           try {
-            const jsonStr = line.slice(6).trim();
+            // Support `data:` with or without space and multiple data lines per SSE event.
+            const jsonStr = dataLines
+              .map((line) => line.slice(5).trimStart())
+              .join("\n")
+              .trim();
             if (!jsonStr) continue; // Skip empty data lines
             const data: SSEChunk = JSON.parse(jsonStr);
             const { type, data: chunkData } = data;
@@ -753,7 +761,7 @@ async function handleStreamingResponse(
               throw new Error("Unknown error");
             }
           } catch (e) {
-            console.error("Error parsing SSE data:", e, line);
+            console.error("Error parsing SSE data:", e, eventBlock);
           }
         }
       }
