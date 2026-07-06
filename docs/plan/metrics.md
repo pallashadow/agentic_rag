@@ -17,8 +17,8 @@ debugging a suspected regression). This is **not** a per-commit CI gate.
 
 We do not hand-label answers. Instead, gold pairs are generated from the corpus:
 
-1. Sample chunks from an index (e.g. `miles_guo`, `lzj`, `lxb`, `mzd`,
-   `epstein9`). Chunks are readable via the existing chunk store in
+1. Sample chunks from an index (e.g. `miles_guo`, `lzj`, `lxb`, `mzd`).
+   Chunks are readable via the existing chunk store in
    `lib/search/elastic_chunk_index.py` (`ElasticWriteClientChunks`), or directly
    from the on-disk chunk files used to build the index.
 2. For each chunk, call the LLM to produce a **(query, gold_answer)** pair that is

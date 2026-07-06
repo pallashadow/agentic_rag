@@ -1,8 +1,8 @@
-# Plan: UK Parliament Hansard `chunk_index` (English, ~3–5M words)
+# Plan: UK Parliament Hansard `chunk_index` (English, ~1M tokens)
 
 ## Motivation
 
-Every current dataset (`miles_guo`, `lzj`, `lxb`, `mzd`, `epstein9`) is Chinese-language
+Every current dataset (`miles_guo`, `lzj`, `lxb`, `mzd`) is Chinese-language
 political content. For a UK audience — e.g. an interview demo — these corpora are
 unreadable, lack shared context, and can read as politically sensitive.
 
@@ -20,16 +20,27 @@ reuse the existing pipeline end-to-end.
 
 ## Scope / size target
 
-- **~3–5M words** ≈ a "comfortable demo" tier. Do **not** ingest the full corpus
+Keep the footprint **well below** the existing `miles_guo` index — a small, cheap demo
+tier. Reference numbers for `miles_guo` (see `docs/guides/data-preparation.md`): ~2,866
+documents / ~48,751 chunks. We aim for roughly **a quarter of that**.
+
+- **Target ≈ 1M tokens (~750k–800k words).** Do **not** ingest the full corpus
   (200+ years, billions of words).
-- Concretely: **recent ~2 years of debates across a handful of well-known topics**
-  (e.g. cost of living, NHS, Brexit/EU relations, energy). This keeps the corpus real
-  and noisy enough to show off two-step retrieval while ingest stays minutes-scale.
-- Expected volume with the current chunker (`chunk_size=500`, `chunk_overlap=100`):
-  - 3–5M words ≈ **~1–2M tokens** ≈ **~10k–20k chunks**.
+- Concretely: **recent ~5–6 months of debates across 1–2 well-known topics** (e.g. cost
+  of living + NHS). Small, but still real and noisy enough to show off two-step
+  retrieval.
+- Expected volume with the current chunker (`chunk_size=500`, `chunk_overlap=100`).
+  Note `chunk_size`/`chunk_overlap` are **characters**, converted to tokens at index
+  time ([chunker.py](../../lib/data/chunker.py)); for English (~4 chars/token) each
+  chunk is only ~125 tokens (~90 words) with a ~100-token net advance:
+  - ~1M tokens ≈ **~10k chunks** — roughly a quarter of `miles_guo`'s ~48k.
+  - (English tokens *exceed* words, ~1.3×; the earlier "~1–2M tokens / 10k–20k chunks"
+    estimate was inverted.)
   - Document granularity: **one debate section = one `doc_id`** (see below).
-    ~500–2000 debate documents is a healthy count for the title/summary layer.
-- Trivial for Elasticsearch Serverless; index build is minutes, not hours.
+    ~300–600 debate documents is a healthy count for the title/summary layer.
+- If the ~90-word chunks read too small in the demo, raise `chunk_size` for the Hansard
+  path (see Chunker note) — this also *lowers* the chunk count further.
+- Trivial for Elasticsearch Serverless; index build is a couple of minutes.
 
 ## Data source
 
@@ -54,7 +65,13 @@ are new. Reused as-is:
 | Context | `lib/data/contexter.py` | Optional; can skip for v1 (like `lzj`/`lxb`). |
 | Index chunks | `lib/search/elastic_chunk_index.py` (`ElasticWriteClientChunks`) | Reuse unchanged. Fields `text`, `doc_summary`, `doc_title`, `context` already match. |
 | Index titles | `lib/search/elastic_title_index.py` | Reuse unchanged. |
-| Register dataset | `lib/index_mapping.json` + `docs/README_INDEX.md` | **New** `hansard` entry, `doc_lang: "en"`. |
+| Register dataset | `lib/index_mapping.json` + `docs/README_INDEX.md` | **New** `hansard` entry, `doc_lang: "en"`. **Required** — see note below. |
+
+> **Registration is a hard requirement, not a nicety.** `get_index_meta`
+> ([lib/index_mapping.py](../../lib/index_mapping.py)) falls back for unregistered
+> datasets to `doc_lang: "zh"`. An unregistered `hansard` would therefore run as
+> *Chinese*, breaking query-language detection ([main.py:110-111](../../main.py#L110-L111))
+> and degrading English retrieval. The `doc_lang: "en"` entry is what prevents this.
 
 ### `doc_id` scheme
 
@@ -78,15 +95,16 @@ Chunk filenames must be `{doc_id}_{chunk_id}.txt` and `doc_id` may contain under
      the API to skip LLM title extraction.
    - Thread-pooled like the miles downloader; polite rate limiting.
 2. `scripts/data_prepare_hansard.ipynb`
-   - Mirror the existing `data_prepare_*` flow referenced in `docs/guides/data-preparation.md`:
+   - Copy the concrete template `scripts/data_prepare_miles.ipynb` (also `lxb`/`lzj`/`mzd`
+     variants exist) and repoint it at `data_hansard`:
      download → chunk → (summary) → index chunks → index titles.
 3. `lib/index_mapping.json` — add:
    ```json
    "hansard": { "title_index": "hansard_titles", "doc_lang": "en" }
    ```
 4. `docs/README_INDEX.md` — add a bilingual catalog entry, e.g.:
-   > `hansard`: UK Parliament (Hansard) debate transcripts, recent ~2 years across
-   > selected topics. Supports summary extraction; context expansion optional.
+   > `hansard`: UK Parliament (Hansard) debate transcripts, recent ~5–6 months across
+   > 1–2 selected topics. Supports summary extraction; context expansion optional.
 
 ## Chunker note
 
@@ -106,7 +124,7 @@ the default.
 
 Select `chunk_index = hansard`, then ask questions a UK interviewer immediately gets:
 
-- "What has been said in Parliament about the cost of living crisis since 2022?"
+- "What has been said in Parliament about the cost of living crisis this past year?"
 - "Summarise the main arguments made about NHS waiting times."
 - "Which concerns were raised about energy prices, and by whom?"
 
@@ -116,11 +134,15 @@ the `miles_guo` demo, but legible to the audience.
 
 ## Acceptance criteria
 
-- [ ] `data/data_hansard/documents/` populated; total ≈ 3–5M words.
+- [ ] `data/data_hansard/documents/` populated; total ≈ 1M tokens (~750k–800k words,
+      ~10k chunks).
 - [ ] Chunks + titles (+ optional summaries) indexed into `hansard` / `hansard_titles`.
 - [ ] `hansard` registered in `lib/index_mapping.json` and `docs/README_INDEX.md`.
-- [ ] Frontend dataset dropdown offers `hansard`; the three demo questions above return
-      sensible, cited answers.
+- [ ] Frontend works with `hansard` **with no frontend code change**: the `chunk_index`
+      field is a free-text input ([frontend/src/rag.ts:729](../../frontend/src/rag.ts#L729),
+      [agentic.ts:870](../../frontend/src/agentic.ts#L870)), so typing `hansard` or passing
+      `?chunk_index=hansard` is sufficient. (A real dataset *picker* is separate, optional
+      scope.) The three demo questions above return sensible, cited answers.
 - [ ] No changes required in `lib/agentic/`, `lib/rag/`, `lib/skills/`, or
       `lib/search/elastic_*` beyond the new dataset registration.
 

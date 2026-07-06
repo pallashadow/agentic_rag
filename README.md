@@ -48,7 +48,7 @@ Dependency management note: this project uses `pyproject.toml` + `poetry.lock`. 
 
 ### Data Preparation
 The data-side pipeline is assembled from reusable components in `lib/data/`, run once per dataset (`chunk_index`) to populate Elasticsearch:
-- **Download** — `downloader_miles.py` (`MilesGuoDataDownloader`) scrapes source text from [`gwins.org`](https://gwins.org/). This downloader is specific to the `miles_guo` dataset; other datasets (`lzj`, `lxb`, `mzd`, `epstein9`) are sourced separately.
+- **Download** — `downloader_miles.py` (`MilesGuoDataDownloader`) scrapes source text from [`gwins.org`](https://gwins.org/). This downloader is specific to the `miles_guo` dataset; other datasets (`lzj`, `lxb`, `mzd`) are sourced separately.
 - **Chunk** — `chunker.py` (`NaiveChunker`) splits documents into overlapping chunks.
 - **Summaries / titles** — `summary_extractor.py` and `title_extractor.py` generate per-document summaries and titles, indexed into the `*_titles` index (via `ElasticWriteClientTitles`) for two-step retrieval.
 - **Context expansion** — `contexter.py` (`ContextGenerator`) generates expanded context around chunks.

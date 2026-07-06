@@ -14,9 +14,5 @@
   "mzd": {
     "title_index": "mzd_titles",
     "doc_lang": "zh"
-  },
-  "epstein9": {
-    "title_index": "epstein9_titles",
-    "doc_lang": "en"
   }
 }
