@@ -14,10 +14,11 @@ Index of project documentation. Grouped by intent.
 - [guides/ci-cd.md](guides/ci-cd.md) — GitHub Actions release process
 - [guides/deploy-cloud-functions.md](guides/deploy-cloud-functions.md) — Google Cloud Functions deployment (recommended)
 
-## Roadmap — planned upgrades
-- [roadmap/README.md](roadmap/README.md) — remaining modernization work
-- [roadmap/metrics.md](roadmap/metrics.md) — offline evaluation framework
-- [roadmap/frontend-react.md](roadmap/frontend-react.md) — migrate frontend to React
+## Plan — planned upgrades
+- [plan/README.md](plan/README.md) — remaining modernization work
+- [plan/hansard-index.md](plan/hansard-index.md) — add a UK Parliament Hansard (English) chunk_index
+- [plan/metrics.md](plan/metrics.md) — offline evaluation framework
+- [plan/frontend-react.md](plan/frontend-react.md) — migrate frontend to React
 
 ## Reference
 - [../deploy/terraform/README.md](../deploy/terraform/README.md) — Terraform infrastructure-as-code

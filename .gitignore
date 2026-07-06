@@ -6,6 +6,7 @@ key.pem
 .env
 data_*/
 data/
+.venv/
 frontend/dist/
 .cursor/
 .vscode/

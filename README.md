@@ -40,18 +40,21 @@ Tech stack:
    - `LANGSMITH_TRACING`: Set to `"true"` to enable tracing
    - `LANGSMITH_PROJECT`: Project name (use different projects for dev/staging/prod, e.g., `chatbot-milesguo-dev`)
    - `LANGSMITH_ENDPOINT`: LangSmith API endpoint (default: `https://api.smith.langchain.com`)
-5. Prepare data: Run one of the notebooks in `scripts/` (e.g. `scripts/data_prepare_*.ipynb`) to download and process the data
+5. Prepare data: drive the reusable ingestion components in `lib/data/` (downloader, chunker, summary/title/context extractors) to populate Elasticsearch. The per-dataset orchestration notebooks are not tracked in this repo — see the Data Preparation section below.
 
 Dependency management note: this project uses `pyproject.toml` + `poetry.lock`. `requirements.txt` is not maintained.
 
 ## Usage
 
 ### Data Preparation
-Run one of the dataset-specific notebooks in `scripts/` (for example `scripts/data_prepare_*.ipynb`) to:
-- Download text from [`gwins.org`](https://gwins.org/)
-- Process and split text into chunks
-- Generate summaries and titles
-- Index documents in Elasticsearch
+The data-side pipeline is assembled from reusable components in `lib/data/`, run once per dataset (`chunk_index`) to populate Elasticsearch:
+- **Download** — `downloader_miles.py` (`MilesGuoDataDownloader`) scrapes source text from [`gwins.org`](https://gwins.org/). This downloader is specific to the `miles_guo` dataset; other datasets (`lzj`, `lxb`, `mzd`, `epstein9`) are sourced separately.
+- **Chunk** — `chunker.py` (`NaiveChunker`) splits documents into overlapping chunks.
+- **Summaries / titles** — `summary_extractor.py` and `title_extractor.py` generate per-document summaries and titles, indexed into the `*_titles` index (via `ElasticWriteClientTitles`) for two-step retrieval.
+- **Context expansion** — `contexter.py` (`ContextGenerator`) generates expanded context around chunks.
+- **Index** — chunks are written via the chunk index client in `lib/search/`.
+
+Each `chunk_index` is prepared **independently**, which is why the supported operations differ per dataset (e.g. some indices have summaries, some don't) — see [docs/README_INDEX.md](docs/README_INDEX.md) for the per-index capability list. The per-dataset notebooks that wired these components together are not tracked in this repo.
 
 ### Playground
 Open one of the playground notebooks in `scripts/` to:
@@ -121,7 +124,7 @@ Full index: **[docs/README.md](docs/README.md)**. Organized into three groups:
 
 - **Architecture** ([docs/architecture/](docs/architecture/)) — [rag-system.md](docs/architecture/rag-system.md), [agentic-pipeline.md](docs/architecture/agentic-pipeline.md)
 - **Guides** ([docs/guides/](docs/guides/)) — [api.md](docs/guides/api.md), [data-preparation.md](docs/guides/data-preparation.md), [testing.md](docs/guides/testing.md), [web.md](docs/guides/web.md), [ci-cd.md](docs/guides/ci-cd.md), [deploy-cloud-functions.md](docs/guides/deploy-cloud-functions.md)
-- **Roadmap** ([docs/roadmap/](docs/roadmap/)) — planned upgrades ([metrics.md](docs/roadmap/metrics.md), [frontend-react.md](docs/roadmap/frontend-react.md))
+- **Plan** ([docs/plan/](docs/plan/)) — planned upgrades ([hansard-index.md](docs/plan/hansard-index.md), [metrics.md](docs/plan/metrics.md), [frontend-react.md](docs/plan/frontend-react.md))
 
 Archived deployment guides live in [archive/](archive/) ([docker.md](archive/docker.md), [cloud-run.md](archive/cloud-run.md)).
 
@@ -185,7 +188,8 @@ project_root/
       web.md
       ci-cd.md
       deploy-cloud-functions.md
-    roadmap/                   # Planned upgrades
+    plan/                      # Planned upgrades
+      hansard-index.md
       metrics.md
       frontend-react.md
 
