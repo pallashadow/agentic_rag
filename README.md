@@ -1,7 +1,7 @@
 # Agentic Rag Demo
 
 This is a demonstration of using Agentic RAG to chat with documents
-author: pannixilin  
+author: pannixilin (a.k.a. pannixilin1 / pannixilinNFSC / Yuhao Lu — the same person)  
 Gettr: [@pannixilin1](https://gettr.com/user/pannixilin1)  
 github: https://github.com/pallashadow/agentic_rag
 frontend: https://pallashadow.github.io/agentic_rag/agentic.html
@@ -65,11 +65,11 @@ The RAG system uses:
 - **Multi-model LLM**: Uses LiteLLM with fallback support (GPT-4o-mini, Gemini 2.0 Flash)
 - **Async processing**: Supports asynchronous API calls for better performance
 
-For detailed technical documentation about the RAG algorithm, workflow, document expansion techniques, and design decisions, see [docs/README_RAG.md](docs/README_RAG.md).
+For detailed technical documentation about the RAG algorithm, workflow, document expansion techniques, and design decisions, see [docs/architecture/rag-system.md](docs/architecture/rag-system.md).
 
 ### Agentic RAG
 
-The project also includes an **Agentic RAG Pipeline** built with LangGraph that intelligently routes queries through different processing paths with iterative answer refinement. For detailed documentation about the agentic workflow, nodes, routing functions, and state management, see [docs/README_AGENTIC.md](docs/README_AGENTIC.md).
+The project also includes an **Agentic RAG Pipeline** built with LangGraph that intelligently routes queries through different processing paths with iterative answer refinement. For detailed documentation about the agentic workflow, nodes, routing functions, and state management, see [docs/architecture/agentic-pipeline.md](docs/architecture/agentic-pipeline.md).
 
 **Key Features:**
 
@@ -102,7 +102,7 @@ The project also includes an **Agentic RAG Pipeline** built with LangGraph that 
 
 **Recommended: Google Cloud Functions (2nd gen)**
 
-The easiest way to deploy is using Google Cloud Functions. See [docs/README_GCLOUD_FUNCTIONS.md](docs/README_GCLOUD_FUNCTIONS.md) for deployment instructions.
+The easiest way to deploy is using Google Cloud Functions. See [docs/guides/deploy-cloud-functions.md](docs/guides/deploy-cloud-functions.md) for deployment instructions.
 
 The project includes `main.py` which contains the FastAPI app for Cloud Functions compatibility.
 
@@ -111,21 +111,19 @@ The project includes `main.py` which contains the FastAPI app for Cloud Function
 
 
 ~~**Alternative deployment options (archived):**
-- [archive/README_DOCKER.md](archive/README_DOCKER.md) - Docker deployment guide
-- [archive/README_GCLOUD_RUN.md](archive/README_GCLOUD_RUN.md) - Google Cloud Run deployment guide~~
+- [archive/docker.md](archive/docker.md) - Docker deployment guide
+- [archive/cloud-run.md](archive/cloud-run.md) - Google Cloud Run deployment guide~~
 
 
 ## Documentation
 
-- [docs/README_RAG.md](docs/README_RAG.md) - RAG algorithm, workflow, and design decisions
-- [docs/README_AGENTIC.md](docs/README_AGENTIC.md) - Agentic RAG Pipeline documentation (LangGraph-based workflow)
-- [docs/README_API.md](docs/README_API.md) - API endpoints and usage
-- [docs/README_DATA.md](docs/README_DATA.md) - Data preparation guide and `data_*/` directory structure
-- [docs/README_GCLOUD_FUNCTIONS.md](docs/README_GCLOUD_FUNCTIONS.md) - Google Cloud Functions deployment (recommended)
-- [docs/README_TEST.md](docs/README_TEST.md) - Testing documentation
-- [frontend/README_WEB.md](frontend/README_WEB.md) - Frontend documentation
-- [archive/README_GCLOUD_RUN.md](archive/README_GCLOUD_RUN.md) - Google Cloud Run deployment (archived)
-- [archive/README_DOCKER.md](archive/README_DOCKER.md) - Docker deployment guide (archived)
+Full index: **[docs/README.md](docs/README.md)**. Organized into three groups:
+
+- **Architecture** ([docs/architecture/](docs/architecture/)) — [rag-system.md](docs/architecture/rag-system.md), [agentic-pipeline.md](docs/architecture/agentic-pipeline.md)
+- **Guides** ([docs/guides/](docs/guides/)) — [api.md](docs/guides/api.md), [data-preparation.md](docs/guides/data-preparation.md), [testing.md](docs/guides/testing.md), [web.md](docs/guides/web.md), [ci-cd.md](docs/guides/ci-cd.md), [deploy-cloud-functions.md](docs/guides/deploy-cloud-functions.md)
+- **Roadmap** ([docs/roadmap/](docs/roadmap/)) — planned upgrades ([metrics.md](docs/roadmap/metrics.md), [frontend-react.md](docs/roadmap/frontend-react.md))
+
+Archived deployment guides live in [archive/](archive/) ([docker.md](archive/docker.md), [cloud-run.md](archive/cloud-run.md)).
 
 ## Frontend (static)
 
@@ -174,13 +172,22 @@ project_root/
       rag.yaml
       agentic_prompt.yaml
 
-  docs/                        # Documentation
-    README_RAG.md
-    README_AGENTIC.md
-    README_API.md
-    README_DATA.md
-    README_TEST.md
-    README_GCLOUD_FUNCTIONS.md
+  docs/                        # Documentation (see docs/README.md for the index)
+    README.md                  # Documentation index
+    README_INDEX.md            # Dataset / chunk_index catalog (runtime asset, loaded by frontend)
+    architecture/              # How the system works
+      rag-system.md
+      agentic-pipeline.md
+    guides/                    # How to use and operate
+      api.md
+      data-preparation.md
+      testing.md
+      web.md
+      ci-cd.md
+      deploy-cloud-functions.md
+    roadmap/                   # Planned upgrades
+      metrics.md
+      frontend-react.md
 
   frontend/                    # Static frontend (GitHub Pages)
     rag.html                   # Traditional RAG UI
@@ -189,7 +196,6 @@ project_root/
     agentic.js                 # Agentic RAG client logic
     common.js                  # Shared UI/client helpers
     styles.css
-    README_WEB.md
 
   scripts/                     # Notebooks and helper scripts
     data_prepare_*.ipynb        # Data preparation per dataset (miles/lxb/lzj/mzd)
@@ -211,7 +217,7 @@ project_root/
 
 ## Architecture
 
-The system implements a **two-step RAG architecture**. For detailed documentation, see [docs/README_RAG.md](docs/README_RAG.md).
+The system implements a **two-step RAG architecture**. For detailed documentation, see [docs/architecture/rag-system.md](docs/architecture/rag-system.md).
 
 ## Advantages vs. Naive RAG
 
