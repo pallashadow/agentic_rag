@@ -2,8 +2,7 @@
 Neighbour chunk search skill for finding adjacent chunks within a document.
 """
 from pydantic import BaseModel, Field
-from lib.mcp.search_server import SearchMCPServer
-from lib.mcp.search_service import NeighbourSearchRequest
+from lib.search.search_service import SearchService, NeighbourSearchRequest
 from lib.skills.base import BaseSkill, SkillInput, SkillOutput
 from lib.skills.general_search import DocumentResult
 from lib.agentic.config import AgentState
@@ -43,33 +42,31 @@ class NeighbourSearchSkill(BaseSkill):
     input_model = NeighbourSearchInput
     output_model = NeighbourSearchOutput
     
-    def __init__(self, mcp_server: SearchMCPServer):
-        self.mcp_server = mcp_server
-    
+    def __init__(self, search_service: SearchService):
+        self.search_service = search_service
+
     async def execute(
         self,
         input_data: NeighbourSearchInput,
         state: AgentState | None = None,
     ) -> NeighbourSearchOutput:
-        """Execute neighbour chunk search via MCP."""
+        """Execute neighbour chunk search."""
         if state is None:
             raise ValueError("state is required to inherit chunk_index")
 
         search_config = state.get("search_config", {})
         chunk_index = search_config.get("chunk_index", "miles_guo")
 
-        # Create MCP request with all parameters
-        mcp_request = NeighbourSearchRequest(
+        request = NeighbourSearchRequest(
             doc_id=input_data.doc_id,
             chunk_id=input_data.chunk_id,
             chunk_index=chunk_index,
             distance=input_data.distance
         )
-        
-        # Call MCP server
-        mcp_results = await self.mcp_server.neighbour_search(mcp_request)
-        
-        # Convert MCP DocumentResult to skill DocumentResult
+
+        service_results = await self.search_service.neighbour_search(request)
+
+        # Convert service DocumentResult to skill DocumentResult
         results = [
             DocumentResult(
                 doc_id=r.doc_id,
@@ -79,9 +76,9 @@ class NeighbourSearchSkill(BaseSkill):
                 score=r.score,
                 index=r.index
             )
-            for r in mcp_results
+            for r in service_results
         ]
-        
+
         return NeighbourSearchOutput(
             results=results,
             doc_id=input_data.doc_id,

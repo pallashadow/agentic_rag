@@ -104,7 +104,7 @@ def mock_skill_registry():
     Returns deterministic search results with index field.
 
     Motivation: align tests with current skill-based architecture without
-    depending on MCP/Elasticsearch.
+    depending on the search service/Elasticsearch.
     """
     class _GeneralSearchInput(BaseModel):
         query_list: list[str]

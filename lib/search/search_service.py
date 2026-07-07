@@ -1,4 +1,9 @@
-"""Service layer for Elasticsearch search operations."""
+"""Service layer for Elasticsearch search operations.
+
+Provides a typed, collection-aware abstraction over ``ElasticMix``. Skills and
+the RAG pipeline call this service directly; it maps ``chunk_index`` to the
+matching title index and returns typed ``DocumentResult`` models.
+"""
 
 from pydantic import BaseModel, Field
 from lib.search.elastic_mix import ElasticMix
@@ -60,21 +65,21 @@ class DocumentResult(BaseModel):
 
 class SearchService:
     """Service layer for Elasticsearch search operations."""
-    
+
     def __init__(self, elastic_mix: ElasticMix):
         self.elastic_mix = elastic_mix
-    
+
     async def search(self, request: SearchRequest) -> list[DocumentResult]:
         """Search documents using general search."""
         title_index = get_index_meta(request.chunk_index)["title_index"]
         chunk_index = request.chunk_index
-        
+
         # Use search_ops with search_general operation
         ops = [{
             "type": "search_general",
             "query_list": [request.query]
         }]
-        
+
         results = await self.elastic_mix.search_ops(
             ops,
             title_index=title_index,
@@ -82,7 +87,7 @@ class SearchService:
             title_k=request.title_k,
             chunk_k=request.top_k
         )
-        
+
         # Convert dict results to DocumentResult models
         return [
             DocumentResult(
@@ -95,18 +100,18 @@ class SearchService:
             )
             for r in results
         ]
-    
+
     async def general_search(self, request: GeneralSearchRequest) -> list[DocumentResult]:
         """General search with query list support."""
         title_index = get_index_meta(request.chunk_index)["title_index"]
         chunk_index = request.chunk_index
-        
+
         # Use search_ops with search_general operation
         ops = [{
             "type": "search_general",
             "query_list": request.query_list
         }]
-        
+
         results = await self.elastic_mix.search_ops(
             ops,
             title_index=title_index,
@@ -114,7 +119,7 @@ class SearchService:
             title_k=request.title_k,
             chunk_k=request.top_k
         )
-        
+
         # Convert dict results to DocumentResult models
         return [
             DocumentResult(
@@ -127,18 +132,18 @@ class SearchService:
             )
             for r in results
         ]
-    
+
     async def document_search(self, request: DocumentSearchRequest) -> list[DocumentResult]:
         """Search within a specific document."""
         chunk_index = request.chunk_index
-        
+
         # Use search_ops with search_doc operation
         ops = [{
             "type": "search_doc",
             "query_list": [request.query],
             "doc_id": request.doc_id
         }]
-        
+
         results = await self.elastic_mix.search_ops(
             ops,
             title_index="",  # Not used for document search
@@ -146,7 +151,7 @@ class SearchService:
             title_k=0,
             chunk_k=request.top_k
         )
-        
+
         # Convert dict results to DocumentResult models
         return [
             DocumentResult(
@@ -159,11 +164,11 @@ class SearchService:
             )
             for r in results
         ]
-    
+
     async def neighbour_search(self, request: NeighbourSearchRequest) -> list[DocumentResult]:
         """Search for neighbouring chunks."""
         chunk_index = request.chunk_index
-        
+
         # Use search_ops with search_neighbour_chunks operation
         ops = [{
             "type": "search_neighbour_chunks",
@@ -171,7 +176,7 @@ class SearchService:
             "chunk_id": request.chunk_id,
             "distance": request.distance
         }]
-        
+
         results = await self.elastic_mix.search_ops(
             ops,
             title_index="",  # Not used for neighbour search
@@ -179,7 +184,7 @@ class SearchService:
             title_k=0,
             chunk_k=0  # Not used for neighbour search
         )
-        
+
         # Convert dict results to DocumentResult models
         return [
             DocumentResult(
@@ -192,7 +197,7 @@ class SearchService:
             )
             for r in results
         ]
-    
+
     async def naive_search(self, request: NaiveSearchRequest) -> list[DocumentResult]:
         """Naive search - direct chunk search without title filtering."""
         # Use elastic_mix.search_naive directly
@@ -202,7 +207,7 @@ class SearchService:
             chunk_k=request.top_k,
             doc_ids=request.doc_ids
         )
-        
+
         # Convert dict results to DocumentResult models
         return [
             DocumentResult(
@@ -215,4 +220,3 @@ class SearchService:
             )
             for i, r in enumerate(results, start=1)
         ]
-

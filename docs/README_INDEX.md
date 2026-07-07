@@ -4,6 +4,7 @@
 # `lzj`：刘仲敬早期开源内容（不全）；支持摘要抽取、题目抽取；不支持上下文扩展。
 # `lxb`：刘晓波文集；支持摘要抽取、题目抽取；不支持上下文扩展。
 # `mzd`：毛泽东全集；不支持摘要抽取及其他处理。
+# `hansard`：英国议会（Hansard）辩论记录，近期约数月、若干选定议题（英文）；支持摘要抽取；上下文扩展可选。
 
 Usage: Select a `chunk_index` first, then start Q&A with the chatbot.
 
@@ -11,3 +12,4 @@ Usage: Select a `chunk_index` first, then start Q&A with the chatbot.
 # `lzj`: Early open-source content from Liu Zhongjing (incomplete); supports summary extraction and topic extraction; does not support context expansion.
 # `lxb`: Collected works of Liu Xiaobo; supports summary extraction and topic extraction; does not support context expansion.
 # `mzd`: Complete works of Mao Zedong; does not support summary extraction or other processing.
+# `hansard`: UK Parliament (Hansard) debate transcripts, recent months across a few selected topics (English); supports summary extraction; context expansion optional.

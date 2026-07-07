@@ -29,10 +29,6 @@ class SkillRegistry:
         """Get all skills as OpenAI tool schemas for LLM function calling."""
         return [skill.to_tool_schema() for skill in self._skills.values()]
     
-    def get_all_mcp_tools(self) -> List[dict]:
-        """Get all skills as MCP tool specifications."""
-        return [skill.to_mcp_tool_spec() for skill in self._skills.values()]
-    
     def get_skill_descriptions(self) -> Dict[str, str]:
         """Get skill names and descriptions for LLM planning."""
         return {

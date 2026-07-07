@@ -1,170 +1,161 @@
-# Metrics: Offline Evaluation Framework
+# Metrics: Simple Offline RAG Evaluation
 
 ## Goal
 
-Define a repeatable **on-demand** offline evaluation loop for RAG quality, used
-only at special moments (before a major search/prompt/model change, or when
-debugging a suspected regression). This is **not** a per-commit CI gate.
+A small, repeatable check to run before/after a retrieval, prompt, or model change,
+or when chasing a regression. Not a CI gate.
 
-## Scope
+It answers two questions with a handful of numbers:
 
-- End-to-end answer quality via LLM-as-judge, multi-dimension scoring.
-- Retrieval quality against the source chunk the question was generated from.
+1. **Retrieval** — did search return the answer chunk?
+2. **Answer** — given that context, is the reply correct and faithful?
+
+Keep the two separate so you can see which one moved.
 
 ---
 
-## 1. Gold Data: Self-Generated From Single Documents
+## 1. Build a question set (once)
 
-We do not hand-label answers. Instead, gold pairs are generated from the corpus:
+No one builds it by hand — the `dataset_gen.py` script generates it automatically.
+Steps:
 
-1. Sample chunks from an index (e.g. `miles_guo`, `lzj`, `lxb`, `mzd`).
-   Chunks are readable via the existing chunk store in
-   `lib/search/elastic_chunk_index.py` (`ElasticWriteClientChunks`), or directly
-   from the on-disk chunk files used to build the index.
-2. For each chunk, call the LLM to produce a **(query, gold_answer)** pair that is
-   answerable *from that chunk alone*. Reuse `call_llm(...)` in
-   `lib/llm/litellm_api.py` with a JSON `response_format`.
-3. Record the source `doc_id` / `chunk_id` alongside the pair — this is the
-   retrieval ground truth (the chunk that *should* be retrieved).
-
-Each benchmark row:
+1. **Read chunks** from Elasticsearch with `ElasticReadClientChunks`
+   (`lib/search/elastic_chunk_index.py`). Do not use the `Write` client — that one
+   is for indexing.
+2. **Sample** ~200 chunks with a fixed `seed`, at most ~2 per document; skip empty /
+   too-short / garbage chunks.
+3. **Generate a question** per chunk with `call_llm`, prompting roughly: *"Here is a
+   passage: {chunk}. Write one question answerable only from it, and give the
+   answer."* Require structured JSON `{"q": ..., "gold": ...}`.
+4. **Save** `q`, `gold`, and the chunk's `doc_id` / `chunk_id` to
+   `test/eval_data/<index>.jsonl` and commit it.
 
 ```json
-{
-  "id": "miles_guo_00123",
-  "index": "miles_guo",
-  "source_doc_id": "...",
-  "source_chunk_id": "...",
-  "query": "generated question",
-  "gold_answer": "generated reference answer"
-}
+{"id": "miles_guo_001", "q": "...", "gold": "...", "doc_id": "doc-1", "chunk_id": "17"}
 ```
 
-Store as versioned JSONL under `test/eval_data/<index>_vN.jsonl`. Regenerate only
-when the corpus changes; keep old versions for comparison.
+Because each question is derived from a known chunk, its source `(doc_id, chunk_id)`
+is the retrieval ground truth for free — no separate labeling.
 
-### Generation quality guard
+Rules:
+- Same `seed` + same corpus → same sampled chunks.
+- Optional: eyeball the generated file once and delete obviously broken rows.
 
-Auto-generated pairs are noisy. Add a cheap filter step: drop pairs where the
-generator flags the chunk as un-answerable, too short, or purely tabular. This
-keeps the benchmark honest without manual labeling.
+That's the whole dataset. No hashes, manifests, or multi-model validation.
 
 ---
 
-## 2. End-to-End Scoring: LLM-as-Judge, Multi-Dimension
+## 2. Retrieval eval → three numbers
 
-For each benchmark row:
+Run the production search and check whether the source chunk came back.
 
-1. Run the real pipeline to get a candidate answer:
-   - RAG path: `lib/rag/rag_base.py` (retrieval + answer prompt).
-   - Optionally the agentic path via `lib/agentic/graph.py` for comparison.
-2. Call an LLM judge (again `call_llm` with a strict JSON `response_format`) that
-   scores the candidate against `gold_answer` **and** the retrieved context on
-   several dimensions, each `0-5`:
+```python
+hits, _ = await RAGBase().search(row["q"], chunk_index=index, chunk_k=10, query_expand_k=0)
+hit = any(h["doc_id"] == row["doc_id"] and h["chunk_id"] == row["chunk_id"] for h in hits)
+```
 
-   | Dimension        | Question the judge answers                                  |
-   |------------------|-------------------------------------------------------------|
-   | Correctness      | Does the answer match the gold answer's facts?              |
-   | Completeness     | Does it cover the key points, without major omissions?      |
-   | Faithfulness     | Is every claim grounded in the retrieved context (no hallucination)? |
-   | Relevance        | Does it actually answer the question, without padding?      |
+Report:
+- **Recall@10** — fraction of rows where the source `(doc_id, chunk_id)` was
+  returned. A failed/errored row counts as a miss.
+- **Doc Recall@10** — same but matching `doc_id` only. Separates "wrong document" from
+  "right document, wrong chunk".
+- **no-hit rate** — fraction of rows where search returned nothing. Spikes when
+  retrieval is broken.
 
-   The dimension set is configurable — start with these four; add/remove per need.
+(Only whole-set membership — the search path doesn't rank by relevance, so
+rank-based metrics like MRR aren't meaningful here.)
 
-3. **Total score** = weighted sum of the dimensions (default: equal weights,
-   normalized to `0-100`). The judge returns per-dimension scores + a one-line
-   rationale so failures are inspectable.
+---
 
-Judge output schema:
+## 3. Answer eval → four numbers
+
+Run the full RAG reply, then have one LLM judge score it.
+
+```python
+result = await RAGBase().chat(row["q"], chunk_index=index, query_expand_k=0)
+answer = result["content"]
+```
+
+Judge call: strict JSON, `temperature=0`. It sees the question, gold answer,
+candidate answer, and retrieved context, and returns four 0–5 scores in one call:
 
 ```json
-{
-  "correctness": 4,
-  "completeness": 3,
-  "faithfulness": 5,
-  "relevance": 4,
-  "total": 80,
-  "rationale": "…"
-}
+{"correctness": 4, "faithfulness": 5, "completeness": 3, "relevance": 4}
 ```
 
-### Judge reliability notes
+- **Correctness** — candidate agrees with the gold answer.
+- **Faithfulness** — every claim is supported by the retrieved context (no making
+  things up).
+- **Completeness** — covers the key points the answer needs.
+- **Relevance** — answers the question without padding or going off-topic.
 
-- Pin the judge model and prompt; a changed judge invalidates cross-run
-  comparison.
-- Use a stronger model for the judge than for the answer when possible.
-- Judge is stochastic: run it at `temperature=0` and treat single-point scores as
-  approximate. Report aggregate (mean per dimension) over the whole set, not
-  per-row verdicts.
+Report the mean of each across all rows. Keep them separate — don't blend into one
+score, or you lose which dimension moved.
+
+Optionally record `latency` and answer length per row (no LLM needed) — handy for
+catching performance regressions.
 
 ---
 
-## 3. Retrieval Scoring
+## 4. Compare against a baseline
 
-Because each query carries its `source_chunk_id`, retrieval is measurable without
-a judge. Run the search entry `ElasticMix.search(query_list, title_index,
-chunk_index, ...)` (or `search_naive`) in `lib/search/elastic_mix.py` and check
-where the source chunk lands:
+Save a run's numbers as the baseline. After a change, rerun and print old vs new
+side by side.
 
-- **Recall@K** — is `source_chunk_id` in the top-K hits?
-- **MRR** — reciprocal rank of the source chunk.
-- **Context precision** — fraction of retrieved chunks that are actually relevant
-  (approximate via the judge's faithfulness signal, or skip initially).
+```text
+metric            baseline   candidate   delta
+recall@10           0.78       0.81      +0.03
+doc_recall@10       0.90       0.91      +0.01
+no-hit rate         0.02       0.02       0.00
+correctness         4.10       4.05      -0.05
+faithfulness        4.40       4.38      -0.02
+completeness        3.80       3.82      +0.02
+relevance           4.30       4.29      -0.01
+```
 
-Retrieval metrics are cheap (no answer-LLM call) and catch most regressions, so
-they are the primary signal; run them first.
+Eyeball it. A meaningful drop (say correctness down > 0.2, or recall down > 0.05) is
+a regression worth investigating. No bootstrap, CI, or pass/fail exit codes — just
+the numbers and your judgement.
+
+Print the worst-scoring rows (question, retrieved chunks, answer) so regressions are
+easy to inspect.
 
 ---
 
-## 4. Implementation Anchors
+## 5. Layout
 
-Proposed layout (new `lib/eval/` package + reuse of existing entries):
-
-```
+```text
 lib/eval/
-  dataset_gen.py   # sample chunks -> (query, gold_answer) via call_llm; write JSONL
-  judge.py         # LLM-as-judge, multi-dimension JSON scoring
-  retrieval.py     # Recall@K / MRR / context precision against source_chunk_id
-  run_eval.py      # orchestrator: load JSONL -> run pipeline -> judge -> aggregate
+  dataset_gen.py   # sample chunks + generate questions -> eval_data/<index>.jsonl
+  run_eval.py      # run search/chat, score, print numbers, compare to baseline
 test/eval_data/
-  <index>_vN.jsonl # versioned benchmark rows
+  <index>.jsonl        # committed question set
+  <index>.baseline.json # saved baseline numbers
 ```
 
-Wiring to existing code:
+Two files. Metric functions stay pure; adapters just call the existing
+`RAGBase.search` / `RAGBase.chat`.
 
-| Need                | Reuse                                                        |
-|---------------------|-------------------------------------------------------------|
-| Read chunks         | `lib/search/elastic_chunk_index.py` (`ElasticWriteClientChunks`) |
-| Retrieval           | `lib/search/elastic_mix.py` → `ElasticMix.search` / `search_naive` |
-| Answer generation   | `lib/rag/rag_base.py` (RAG) / `lib/agentic/graph.py` (agentic) |
-| Any LLM call        | `lib/llm/litellm_api.py` → `call_llm(str1, model_name=..., response_format=...)` |
-| Tracing (optional)  | `lib/observability/langsmith.py` — wrap eval runs with `@traced` if `langsmith_enabled()` |
+---
 
-### How to run
-
-Manual, on demand — not in per-commit CI:
+## 6. Commands
 
 ```bash
-# 1. (re)generate benchmark for one index
-poetry run python -m lib.eval.dataset_gen --index miles_guo --n 100
+# Build the question set.
+poetry run python -m lib.eval.dataset_gen --index miles_guo --n 200 --seed 42
 
-# 2. run retrieval-only (fast) or full end-to-end eval
-poetry run python -m lib.eval.run_eval --index miles_guo --mode retrieval
-poetry run python -m lib.eval.run_eval --index miles_guo --mode full
+# Run retrieval + answer eval, print numbers.
+poetry run python -m lib.eval.run_eval --index miles_guo
+
+# Save this run as the baseline.
+poetry run python -m lib.eval.run_eval --index miles_guo --save-baseline
+
+# Compare against the saved baseline.
+poetry run python -m lib.eval.run_eval --index miles_guo --baseline
 ```
 
-Prints an aggregate report (per-dimension means, total, Recall@K, MRR). Keep the
-existing `pytest` suite in `test/` for correctness; evaluation stays a separate
-manual script so it never blocks commits.
+## Later (only if needed)
 
----
-
-## 5. Baseline and Acceptance
-
-- Save each run's aggregate JSON next to the benchmark (`test/eval_data/`) so two
-  runs can be diffed by hand.
-- Before a major change, record a baseline run; after, compare deltas.
-- Acceptance for a change to land: no meaningful regression in Recall@K and
-  end-to-end total vs. baseline on the affected index(es).
-- Categorize failures by cause for triage: retrieval miss / reasoning error /
-  formatting error.
+Add these one at a time when a real need shows up — not now:
+query expansion eval, the agentic pipeline, more judge dimensions, statistical
+confidence intervals, corpus-change tracking.

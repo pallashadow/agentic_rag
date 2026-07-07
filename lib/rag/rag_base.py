@@ -4,7 +4,7 @@ import textwrap
 import asyncio
 
 from lib.search.elastic_mix import ElasticMix
-from lib.mcp import SearchService, GeneralSearchRequest, NaiveSearchRequest
+from lib.search.search_service import SearchService, GeneralSearchRequest, NaiveSearchRequest
 from lib.rag.query_expand import QueryExpander
 from lib.rag.rag_prompt import build_rag_prompt, PROMPT_BASE
 from lib.language_detect import detect_query_lang
@@ -15,7 +15,7 @@ logger = get_logger(__name__)
 
 class RAGBase:
     def __init__(self):
-        # Initialize ElasticMix only for MCP layer - not used directly
+        # ElasticMix is shared with the search service (not called directly here)
         self.elastic_mix = ElasticMix()
         self.search_service = SearchService(self.elastic_mix)
         self.prompt_base = PROMPT_BASE
@@ -54,15 +54,14 @@ class RAGBase:
             query_list += expanded_query
             chunk_k = chunk_k // 2
         
-        # Use MCP layer instead of direct elastic_mix call
-        # title_index is automatically derived from chunk_index in MCP layer
-        mcp_request = GeneralSearchRequest(
+        # Use the search service; title_index is derived from chunk_index there
+        request = GeneralSearchRequest(
             query_list=query_list,
             chunk_index=chunk_index,
             top_k=chunk_k,
             title_k=title_k
         )
-        doc_results = await self.search_service.general_search(mcp_request)
+        doc_results = await self.search_service.general_search(request)
         
         # Convert DocumentResult to dict format for compatibility
         search_results = [
@@ -81,13 +80,13 @@ class RAGBase:
     
     async def search_naive(self, query: str, chunk_index: str, chunk_k: int = 10) -> list[dict]:
         """Naive search - direct chunk search without title filtering or query expansion."""
-        # Use MCP layer instead of direct elastic_mix call
-        mcp_request = NaiveSearchRequest(
+        # Use the search service instead of a direct elastic_mix call
+        request = NaiveSearchRequest(
             query=query,
             chunk_index=chunk_index,
             top_k=chunk_k
         )
-        doc_results = await self.search_service.naive_search(mcp_request)
+        doc_results = await self.search_service.naive_search(request)
         
         # Convert DocumentResult to dict format for compatibility
         return [

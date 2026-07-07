@@ -73,15 +73,29 @@ are new. Reused as-is:
 > *Chinese*, breaking query-language detection ([main.py:110-111](../../main.py#L110-L111))
 > and degrading English retrieval. The `doc_lang: "en"` entry is what prevents this.
 
+> **Why the retrieval layer needs no code change (the load-bearing assumption).**
+> Retrieval is **BM25**, not vector embeddings — chunk search is a `multi_match`
+> ([elastic_mix.py](../../lib/search/elastic_mix.py)) and title search a `multi_match`
+> over `doc_summary^2` / `doc_title` ([elastic_title_index.py:215-227](../../lib/search/elastic_title_index.py#L215-L227)),
+> so there is no Chinese-tuned embedding model to swap. The index mappings declare
+> `text` fields with **no explicit analyzer** ([elastic_base.py:122-148](../../lib/search/elastic_base.py#L122-L148)),
+> so Elasticsearch applies its default `standard` analyzer, which handles English
+> natively (better, in fact, than it currently handles Chinese). `doc_lang: "en"` then
+> only steers LLM prompt language and query expansion — not the analyzer. This is what
+> makes "reuse the pipeline unchanged" hold.
+
 ### `doc_id` scheme
 
-Chunk filenames must be `{doc_id}_{chunk_id}.txt` and `doc_id` may contain underscores
-(the indexer uses `rsplit("_", 1)`), but `chunk_id` must stay **numeric** so
-`neighbour_search` works. Recommended:
+Chunk filenames are `{doc_id}_{chunk_id}.txt`. The indexer splits on the **last**
+underscore (`rsplit("_", 1)`, [elastic_chunk_index.py:63](../../lib/search/elastic_chunk_index.py#L63)),
+so `doc_id` may freely contain underscores — its content can never be mistaken for a
+`chunk_id`. The only real constraint is that the chunker emit a **numeric** `chunk_id`
+(it always does, [chunker.py:70-72](../../lib/data/chunker.py#L70-L72)), which
+`neighbour_search` relies on.
 
-- `doc_id` = stable Hansard debate identifier, e.g. `commons_2024-05-14_cost-of-living`
-  (avoid trailing numeric-only segments that could be confused with a chunk_id — keep a
-  non-numeric tail).
+- `doc_id` = stable Hansard debate identifier, e.g. `commons_2024-05-14_cost-of-living`.
+  Avoid `.` in the `doc_id`: title extraction derives the id via `split(".")[0]`
+  ([title_extractor.py:34](../../lib/data/title_extractor.py#L34)). Hyphenated dates are safe.
 - `chunk_id` = sequential integer from the chunker (already the case).
 
 ## New code to write
@@ -91,8 +105,8 @@ Chunk filenames must be `{doc_id}_{chunk_id}.txt` and `doc_id` may contain under
    - For each debate: fetch JSON, concatenate speeches as
      `"{Speaker}: {text}"` lines into one document, `re.sub(r'\s+', ' ', ...)` clean,
      write `data/data_hansard/documents/{doc_id}.txt`.
-   - Also emit `data/data_hansard/titles.json` (`{doc_id: debate_title}`) directly from
-     the API to skip LLM title extraction.
+   - Also emit `data/data_hansard/titles.json` directly from the API to skip LLM title
+     extraction (see **titles.json format** below).
    - Thread-pooled like the miles downloader; polite rate limiting.
 2. `scripts/data_prepare_hansard.ipynb`
    - Copy the concrete template `scripts/data_prepare_miles.ipynb` (also `lxb`/`lzj`/`mzd`
@@ -105,6 +119,34 @@ Chunk filenames must be `{doc_id}_{chunk_id}.txt` and `doc_id` may contain under
 4. `docs/README_INDEX.md` — add a bilingual catalog entry, e.g.:
    > `hansard`: UK Parliament (Hansard) debate transcripts, recent ~5–6 months across
    > 1–2 selected topics. Supports summary extraction; context expansion optional.
+
+## titles.json format
+
+Hand-writing `titles.json` from the API is drop-in — it just has to match what
+`TitleExtractor.run` would have produced ([title_extractor.py:68-70](../../lib/data/title_extractor.py#L68-L70)):
+a **flat JSON object** mapping `doc_id → title`, no nesting:
+
+```json
+{
+  "commons_2024-05-14_cost-of-living": "Cost of Living",
+  "commons_2024-05-21_nhs-waiting-times": "NHS Waiting Times"
+}
+```
+
+Rules that make it index cleanly via `ElasticWriteClientTitles.insert_titles`
+([elastic_title_index.py:114-158](../../lib/search/elastic_title_index.py#L114-L158)):
+
+- **Keys must be the exact `doc_id`** — i.e. the document filename stem without `.txt`
+  (`data/data_hansard/documents/{doc_id}.txt`), the same `doc_id` the chunker derives.
+  Mismatched keys don't error; `insert_titles` silently falls back to `""` via
+  `self.titles.get(doc_id, "")`, so a title simply goes missing. Generate both the
+  `.txt` filename and the `titles.json` key from one source string to keep them in lockstep.
+- **Every document needs an entry** — the title index is populated by iterating
+  `titles.json` (or `summaries.json`); a document absent from both is never indexed in
+  the title layer and won't surface in two-step retrieval.
+- **Summaries follow the identical shape** — if you run the LLM summary extractor it
+  emits the same `{doc_id: summary}` dict to `summaries.json`; pass both `title_path`
+  and `summaries_path` to index them together.
 
 ## Chunker note
 
@@ -136,6 +178,10 @@ the `miles_guo` demo, but legible to the audience.
 
 - [ ] `data/data_hansard/documents/` populated; total ≈ 1M tokens (~750k–800k words,
       ~10k chunks).
+- [ ] Chunk sizes verified on a real Hansard sample — confirm the tiktoken
+      chars-per-token self-calibration ([chunker.py:95-98](../../lib/data/chunker.py#L95-L98))
+      yields the expected ~125-token chunks for English before the full build, and raise
+      `chunk_size` if the ~90-word chunks read too small.
 - [ ] Chunks + titles (+ optional summaries) indexed into `hansard` / `hansard_titles`.
 - [ ] `hansard` registered in `lib/index_mapping.json` and `docs/README_INDEX.md`.
 - [ ] Frontend works with `hansard` **with no frontend code change**: the `chunk_index`

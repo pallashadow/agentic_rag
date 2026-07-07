@@ -11,7 +11,7 @@ from lib.index_mapping import get_index_meta
 from lib.language_detect import detect_query_lang
 from lib.app_logger import get_logger, setup_logging
 from lib.security import setup_cors, require_auth, require_rate_limit, global_exception_handler
-from lib.mcp import SearchService, SearchMCPServer
+from lib.search.search_service import SearchService, SearchRequest
 from lib.api.chatbot_service import chatbot_core, chatbot_stream_core
 from lib.api.agentic_service import agentic_rag_core, agentic_rag_stream_core
 
@@ -22,11 +22,10 @@ logger = get_logger(__name__)
 rag_base = RAGBase()
 agentic_base = AgenticGraph().build_workflow().compile()
 
-# Initialize MCP services (external interface)
-# Share the same ElasticMix instance with internal workflow
+# Initialize the search service for the external search endpoint.
+# Share the same ElasticMix instance with the internal workflow.
 search_service = SearchService(rag_base.elastic_mix)
-mcp_server = SearchMCPServer(search_service)
-logger.info("MCP services initialized - SearchService and SearchMCPServer ready")
+logger.info("SearchService initialized")
 
 
 setup_cors(app)
@@ -253,8 +252,8 @@ async def agentic_rag_stream_endpoint(
         headers=SSE_HEADERS,
     )
 
-@app.get("/mcp/search")
-async def mcp_search(
+@app.get("/search")
+async def search_documents(
     query: str,
     chunk_index: str = "miles_guo",
     top_k: int = 10,
@@ -263,13 +262,12 @@ async def mcp_search(
     __: None = Depends(require_rate_limit),
 ):
     """
-    MCP search endpoint - standardized interface for external tools.
-    
-    This endpoint uses the MCP SearchService which provides a clean abstraction
-    over Elasticsearch indices. It coexists with the internal workflow that
-    uses ElasticMix directly. The title_index is automatically derived from chunk_index.
+    External search endpoint - standardized interface for external tools.
+
+    Uses SearchService, which provides a clean abstraction over Elasticsearch
+    indices. It coexists with the internal workflow that uses ElasticMix
+    directly. The title_index is automatically derived from chunk_index.
     """
-    from lib.mcp import SearchRequest
     try:
         request = SearchRequest(
             query=query,
@@ -284,7 +282,7 @@ async def mcp_search(
             "count": len(results),
         }
     except Exception as e:
-        logger.error("Error in mcp_search: %s", e, exc_info=True, extra={"query": query, "chunk_index": chunk_index})
+        logger.error("Error in search_documents: %s", e, exc_info=True, extra={"query": query, "chunk_index": chunk_index})
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 

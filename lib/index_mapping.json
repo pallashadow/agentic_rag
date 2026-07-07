@@ -14,5 +14,9 @@
   "mzd": {
     "title_index": "mzd_titles",
     "doc_lang": "zh"
+  },
+  "hansard": {
+    "title_index": "hansard_titles",
+    "doc_lang": "en"
   }
 }

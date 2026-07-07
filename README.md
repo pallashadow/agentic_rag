@@ -17,7 +17,6 @@ Tech stack:
 - **PDF Processing**: PyPDF
 - **Frontend**: Static HTML/JavaScript (hosted on GitHub Pages)
 - **Deployment**: Google Cloud Functions (2nd gen), Terraform (optional IaC)
-- **Protocol**: MCP (Model Context Protocol) for external integrations
 - **Function Calling**: Native LLM function calling via LiteLLM (replaces JSON Schema structured outputs for better reliability)
 - **Skills System**: Agent-native cognitive capability layer where LLMs can dynamically select and execute search skills (general_search, doc_search, neighbour_search)
 - **Observability**: LangSmith integration for tracing API requests, LangGraph execution paths, and LLM calls with metadata and fallback tracking
@@ -95,6 +94,37 @@ The project also includes an **Agentic RAG Pipeline** built with LangGraph that 
   - LiteLLM model calls (model name, fallback path, latency, token usage)
   - Production troubleshooting metadata (query type, search count, endpoint, version)
 
+### Evaluation
+
+A small, repeatable offline check to run before/after a retrieval, prompt, or model
+change (not a CI gate). It reports retrieval metrics and LLM-judged answer scores
+separately, so you can see which one moved. See the design in
+[docs/plan/metrics.md](docs/plan/metrics.md).
+
+The question set is generated automatically: it samples chunks from an index and asks
+an LLM to write one question per chunk, so each question's source `(doc_id, chunk_id)`
+is the retrieval ground truth for free. Question sets and baselines are committed under
+`test/eval_data/`.
+
+```bash
+# Build the question set (once per index) -> test/eval_data/<index>.jsonl
+python -m lib.eval.dataset_gen --index miles_guo --n 100 --seed 42
+
+# Run retrieval + answer eval and print the numbers.
+python -m lib.eval.run_eval --index miles_guo
+
+# Save this run as the baseline (test/eval_data/<index>.baseline.json).
+python -m lib.eval.run_eval --index miles_guo --save-baseline
+
+# Compare a later run against the saved baseline (prints baseline/candidate/delta).
+python -m lib.eval.run_eval --index miles_guo --baseline
+```
+
+Retrieval reports **recall@10**, **doc_recall@10**, and **no-hit rate**; answers are
+scored 0–5 on **correctness**, **faithfulness**, **completeness**, and **relevance** by
+a single LLM judge call per row. The runner also prints the worst-scoring rows for
+easy inspection.
+
 ## Deployment
 
 **Production Architecture:**
@@ -124,7 +154,7 @@ Full index: **[docs/README.md](docs/README.md)**. Organized into three groups:
 
 - **Architecture** ([docs/architecture/](docs/architecture/)) — [rag-system.md](docs/architecture/rag-system.md), [agentic-pipeline.md](docs/architecture/agentic-pipeline.md)
 - **Guides** ([docs/guides/](docs/guides/)) — [api.md](docs/guides/api.md), [data-preparation.md](docs/guides/data-preparation.md), [testing.md](docs/guides/testing.md), [web.md](docs/guides/web.md), [ci-cd.md](docs/guides/ci-cd.md), [deploy-cloud-functions.md](docs/guides/deploy-cloud-functions.md)
-- **Plan** ([docs/plan/](docs/plan/)) — planned upgrades ([hansard-index.md](docs/plan/hansard-index.md), [metrics.md](docs/plan/metrics.md), [frontend-react.md](docs/plan/frontend-react.md))
+- **Plan** ([docs/plan/](docs/plan/)) — planned upgrades ([hansard-index.md](docs/plan/hansard-index.md), [metrics.md](docs/plan/metrics.md), [frontend-react.md](docs/plan/frontend-react.md), [entity-graph-index.md](docs/plan/entity-graph-index.md))
 
 Archived deployment guides live in [archive/](archive/) ([docker.md](archive/docker.md), [cloud-run.md](archive/cloud-run.md)).
 
@@ -190,6 +220,7 @@ project_root/
       deploy-cloud-functions.md
     plan/                      # Planned upgrades
       hansard-index.md
+      entity-graph-index.md
       metrics.md
       frontend-react.md
 

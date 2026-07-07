@@ -15,6 +15,7 @@ class NaiveChunker:
                  writelist_file=None, # whitelist files to process
                  limit=None, # limit the number of files to process
                  skip_existing=True, # skip existing chunks files
+                 strip_headers=True, # strip miles-specific header/footer markers
                  ):
         self.input_dir = input_dir
         self.output_dir = output_dir
@@ -24,6 +25,10 @@ class NaiveChunker:
         self.writelist_file = writelist_file
         self.limit = limit
         self.skip_existing = skip_existing
+        # miles_guo documents carry a "内容梗概:" header and a Gnews footer that
+        # must be stripped. Non-Chinese corpora (e.g. hansard) have neither, so
+        # allow callers to disable the strip rather than branching on dataset name.
+        self.strip_headers = strip_headers
         # Initialize tiktoken encoder for token-based chunking
         self.encoding = tiktoken.get_encoding(encoding)
 
@@ -84,10 +89,11 @@ class NaiveChunker:
         """
         with open(file1, "r", encoding="utf-8") as f:
             data = f.read()
-        pattern1 = r'^.*?内容梗概: '
-        pattern2 = r' 友情链接：Gnews \| Gclubs \| Gfashion \| himalaya exchange \| gettr \| 法治基金 \| 新中国联邦辞典 \| $'
-        data = re.sub(pattern1, "", data)
-        data = re.sub(pattern2, "", data)
+        if self.strip_headers:
+            pattern1 = r'^.*?内容梗概: '
+            pattern2 = r' 友情链接：Gnews \| Gclubs \| Gfashion \| himalaya exchange \| gettr \| 法治基金 \| 新中国联邦辞典 \| $'
+            data = re.sub(pattern1, "", data)
+            data = re.sub(pattern2, "", data)
         
         # Convert character-based sizes to approximate token counts
         # For Chinese text, roughly 1.5-2 characters per token

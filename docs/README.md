@@ -19,6 +19,7 @@ Index of project documentation. Grouped by intent.
 - [plan/hansard-index.md](plan/hansard-index.md) — add a UK Parliament Hansard (English) chunk_index
 - [plan/metrics.md](plan/metrics.md) — offline evaluation framework
 - [plan/frontend-react.md](plan/frontend-react.md) — migrate frontend to React
+- [plan/entity-graph-index.md](plan/entity-graph-index.md) — LightRAG-style embedding-free entity layer for `miles_guo`
 
 ## Reference
 - [../deploy/terraform/README.md](../deploy/terraform/README.md) — Terraform infrastructure-as-code

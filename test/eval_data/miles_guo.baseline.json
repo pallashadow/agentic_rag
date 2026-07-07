@@ -1,0 +1,10 @@
+{
+  "recall@10": 0.63,
+  "doc_recall@10": 0.66,
+  "no-hit rate": 0.0,
+  "correctness": 4.35,
+  "faithfulness": 4.2,
+  "completeness": 4.26,
+  "relevance": 4.54,
+  "mean_latency_s": 5.040740509033203
+}

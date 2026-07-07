@@ -59,14 +59,6 @@ class BaseSkill(ABC):
             }
         }
     
-    def to_mcp_tool_spec(self) -> dict:
-        """Export skill as MCP tool specification."""
-        return {
-            "name": self.name,
-            "description": self.description,
-            "inputSchema": self.input_model.model_json_schema()
-        }
-    
     @abstractmethod
     async def execute(self, input_data: SkillInput, state: AgentState | None = None) -> SkillOutput:
         """Execute the skill with validated input."""

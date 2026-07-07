@@ -2,8 +2,7 @@
 General document search skill with query expansion and two-step retrieval.
 """
 from pydantic import BaseModel, Field
-from lib.mcp.search_server import SearchMCPServer
-from lib.mcp.search_service import GeneralSearchRequest
+from lib.search.search_service import SearchService, GeneralSearchRequest
 from lib.skills.base import BaseSkill, SkillInput, SkillOutput
 from lib.agentic.config import AgentState
 
@@ -54,15 +53,15 @@ class GeneralSearchSkill(BaseSkill):
     input_model = GeneralSearchInput
     output_model = GeneralSearchOutput
     
-    def __init__(self, mcp_server: SearchMCPServer):
-        self.mcp_server = mcp_server
-    
+    def __init__(self, search_service: SearchService):
+        self.search_service = search_service
+
     async def execute(
         self,
         input_data: GeneralSearchInput,
         state: AgentState | None = None,
     ) -> GeneralSearchOutput:
-        """Execute general search with validated input via MCP."""
+        """Execute general search with validated input."""
         if state is None:
             raise ValueError("state is required to inherit chunk_index and title_k")
 
@@ -70,18 +69,17 @@ class GeneralSearchSkill(BaseSkill):
         chunk_index = search_config.get("chunk_index", "miles_guo")
         title_k = search_config.get("title_k", 3)
 
-        # Create MCP request - title_index is derived from chunk_index in MCP layer
-        mcp_request = GeneralSearchRequest(
+        # title_index is derived from chunk_index inside the search service
+        request = GeneralSearchRequest(
             query_list=input_data.query_list,
             chunk_index=chunk_index,
             top_k=input_data.top_k,
             title_k=title_k
         )
-        
-        # Call MCP server
-        mcp_results = await self.mcp_server.general_search(mcp_request)
-        
-        # Convert MCP DocumentResult to skill DocumentResult
+
+        service_results = await self.search_service.general_search(request)
+
+        # Convert service DocumentResult to skill DocumentResult
         results = [
             DocumentResult(
                 doc_id=r.doc_id,
@@ -91,9 +89,9 @@ class GeneralSearchSkill(BaseSkill):
                 score=r.score,
                 index=r.index
             )
-            for r in mcp_results
+            for r in service_results
         ]
-        
+
         return GeneralSearchOutput(
             results=results,
             total_found=len(results),

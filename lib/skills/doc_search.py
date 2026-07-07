@@ -2,8 +2,7 @@
 Document-specific search skill for searching within a known document.
 """
 from pydantic import BaseModel, Field
-from lib.mcp.search_server import SearchMCPServer
-from lib.mcp.search_service import DocumentSearchRequest
+from lib.search.search_service import SearchService, DocumentSearchRequest
 from lib.skills.base import BaseSkill, SkillInput, SkillOutput
 from lib.skills.general_search import DocumentResult
 from lib.agentic.config import AgentState
@@ -35,33 +34,31 @@ class DocumentSearchSkill(BaseSkill):
     input_model = DocumentSearchInput
     output_model = DocumentSearchOutput
     
-    def __init__(self, mcp_server: SearchMCPServer):
-        self.mcp_server = mcp_server
-    
+    def __init__(self, search_service: SearchService):
+        self.search_service = search_service
+
     async def execute(
         self,
         input_data: DocumentSearchInput,
         state: AgentState | None = None,
     ) -> DocumentSearchOutput:
-        """Execute document-specific search via MCP."""
+        """Execute document-specific search."""
         if state is None:
             raise ValueError("state is required to inherit chunk_index")
 
         search_config = state.get("search_config", {})
         chunk_index = search_config.get("chunk_index", "miles_guo")
 
-        # Create MCP request with all parameters
-        mcp_request = DocumentSearchRequest(
+        request = DocumentSearchRequest(
             query=input_data.query,
             doc_id=input_data.doc_id,
             chunk_index=chunk_index,
             top_k=input_data.top_k
         )
-        
-        # Call MCP server
-        mcp_results = await self.mcp_server.document_search(mcp_request)
-        
-        # Convert MCP DocumentResult to skill DocumentResult
+
+        service_results = await self.search_service.document_search(request)
+
+        # Convert service DocumentResult to skill DocumentResult
         results = [
             DocumentResult(
                 doc_id=r.doc_id,
@@ -71,9 +68,9 @@ class DocumentSearchSkill(BaseSkill):
                 score=r.score,
                 index=r.index
             )
-            for r in mcp_results
+            for r in service_results
         ]
-        
+
         return DocumentSearchOutput(
             results=results,
             doc_id=input_data.doc_id,

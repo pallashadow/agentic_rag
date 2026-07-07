@@ -15,7 +15,7 @@ class Node:
     """
     
     def __init__(self):
-        # Build skill registry via skills-layer factory to keep MCP hidden from nodes.
+        # Build skill registry via skills-layer factory to keep search wiring hidden from nodes.
         self.skill_registry = create_default_skill_registry()
 
     async def entry_llm_node(self, state: AgentState) -> AgentState:
